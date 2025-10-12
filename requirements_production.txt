@@ -1,0 +1,44 @@
+# Core Backend Dependencies
+fastapi==0.104.1
+uvicorn[standard]==0.24.0
+pydantic==2.5.0
+python-multipart==0.0.6
+
+# Database - Firestore
+google-cloud-firestore==2.11.1
+
+# AI/ML Dependencies
+openai>=1.6.1,<2.0.0
+langchain==0.0.350
+langchain-openai==0.0.2
+chromadb==0.4.18
+tiktoken==0.5.2
+
+# Voice Processing
+openai-whisper==20231117
+elevenlabs==0.2.26
+
+# WhatsApp Integration - Meta WhatsApp Business API
+requests==2.32.5
+
+# Firebase
+firebase-admin==6.4.0
+google-cloud-storage==2.10.0
+
+# PDF Generation
+reportlab==4.0.7
+PyPDF2==3.0.1
+
+# Utilities
+python-dotenv==1.0.0
+httpx==0.25.2
+aiofiles==23.2.1
+python-jose[cryptography]==3.3.0
+passlib[bcrypt]==1.7.4
+python-multipart==0.0.6
+
+# Development
+pytest==7.4.3
+pytest-asyncio==0.21.1
+black==23.11.0
+flake8==6.1.0
