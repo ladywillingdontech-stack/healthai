@@ -7,6 +7,7 @@
 # Environment variables needed:
 # OPENAI_API_KEY=your_openai_api_key
 
+
 # Railway will automatically:
 # 1. Install Python dependencies from requirements_production.txt
 # 2. Run the Procfile command
