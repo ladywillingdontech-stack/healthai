@@ -1,7 +1,7 @@
-# Use Python 3.11 base image
-FROM python:3.11-slim
+# Multi-stage build for Railway - faster and more reliable
+FROM python:3.11-slim as builder
 
-# Install system dependencies
+# Install build dependencies
 RUN apt-get update && apt-get install -y \
     build-essential \
     curl \
@@ -10,32 +10,38 @@ RUN apt-get update && apt-get install -y \
     libssl-dev \
     && rm -rf /var/lib/apt/lists/*
 
-# Install Rust (required for some packages)
+# Install Rust
 RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
 ENV PATH="/root/.cargo/bin:${PATH}"
 
-# Install setuptools-rust for Python packages that need Rust
-RUN pip install setuptools-rust
+# Install Python build tools
+RUN pip install --no-cache-dir setuptools-rust wheel
+
+# Copy requirements and install packages
+WORKDIR /app
+COPY requirements.txt .
+RUN pip install --no-cache-dir --prefer-binary -r requirements.txt
+
+# Final stage - runtime
+FROM python:3.11-slim
+
+# Copy installed packages from builder
+COPY --from=builder /usr/local/lib/python3.11/site-packages /usr/local/lib/python3.11/site-packages
+COPY --from=builder /usr/local/bin /usr/local/bin
 
 # Set working directory
 WORKDIR /app
 
-# Copy requirements first for better caching
-COPY requirements.txt .
-
-# Install Python dependencies
-RUN pip install --upgrade pip setuptools wheel
-RUN pip install --no-cache-dir -r requirements.txt
-
 # Copy application code
 COPY . .
+
+# Set environment variables
+ENV PORT=8000
+ENV PYTHONUNBUFFERED=1
+ENV PYTHONDONTWRITEBYTECODE=1
 
 # Expose port
 EXPOSE 8000
 
 # Run the application
-ENV PORT=8000
-CMD sh -c "uvicorn app.main:app --host 0.0.0.0 --port ${PORT}"
-
-
-
+CMD ["sh", "-c", "uvicorn app.main:app --host 0.0.0.0 --port ${PORT}"]
