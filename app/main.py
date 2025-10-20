@@ -8,14 +8,13 @@ from datetime import datetime
 
 from app.firestore_service import firestore_service
 from app.models import *
-# Lazy-load heavy modules to reduce cold start time
-# from app.intelligent_conversation_engine import intelligent_conversation_engine
-# from app.voice_processing import voice_processor
+from app.intelligent_conversation_engine import intelligent_conversation_engine
+from app.voice_processing import voice_processor
 from app.whatsapp_meta_service import whatsapp_service
-# from app.emr_generator import emr_generator
-# from app.urdu_transliteration_parser import UrduChromaDBSetup
-# from app.auth_service import auth_service
-# from app.reports_service import reports_service
+from app.emr_generator import emr_generator
+from app.urdu_transliteration_parser import UrduChromaDBSetup
+from app.auth_service import auth_service
+from app.reports_service import reports_service
 from app.config import settings
 
 # Create FastAPI app
@@ -75,7 +74,6 @@ async def voice_conversation(audio: UploadFile = File(...), patient_id: str = "d
         try:
             # Step 1: Convert speech to text
             print(f"Converting speech to text from: {tmp_file_path}")
-            from app.voice_processing import voice_processor
             text = await voice_processor.speech_to_text(tmp_file_path)
             print(f"Transcribed text: {text}")
             
@@ -88,7 +86,6 @@ async def voice_conversation(audio: UploadFile = File(...), patient_id: str = "d
             
             # Step 2: Process conversation using the intelligent engine with Firestore
             print(f"Processing conversation for patient: {patient_id}")
-            from app.intelligent_conversation_engine import intelligent_conversation_engine
             conversation_result = await intelligent_conversation_engine.process_patient_response(
                 patient_text=text,
                 patient_id=patient_id
@@ -106,8 +103,7 @@ async def voice_conversation(audio: UploadFile = File(...), patient_id: str = "d
             if action == 'generate_emr':
                 print("🚨 Generating EMR for completed conversation...")
                 try:
-                    from app.intelligent_conversation_engine import intelligent_conversation_engine as _ice
-                    emr_result = await _ice.generate_emr(patient_id)
+                    emr_result = await intelligent_conversation_engine.generate_emr(patient_id)
                     if emr_result:
                         print("✅ EMR generated successfully")
                     else:
@@ -117,8 +113,7 @@ async def voice_conversation(audio: UploadFile = File(...), patient_id: str = "d
             
             # Step 4: Convert response to speech
             print("Converting response to speech...")
-            from app.voice_processing import voice_processor as _vp
-            audio_file = _vp.text_to_speech(response_text)
+            audio_file = voice_processor.text_to_speech(response_text)
             
             return VoiceResponse(
                 success=True,
