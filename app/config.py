@@ -30,9 +30,9 @@ class Settings(BaseSettings):
     firebase_auth_provider_x509_cert_url: str = "https://www.googleapis.com/oauth2/v1/certs"
     firebase_client_x509_cert_url: str = ""
     
-    # Database Configuration - Firestore
+    # Database Configuration
     firebase_service_account_path: str = "firebase-service-account.json"
-     chroma_db_path: str = "/tmp/chroma_db"
+    chroma_db_path: str = "/tmp/chroma_db"
     
     # Security
     secret_key: str = ""
