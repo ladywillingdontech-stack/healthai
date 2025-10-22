@@ -92,51 +92,28 @@ async def health_check():
         "timestamp": datetime.now().isoformat()
     }
 
-@app.get("/debug/firestore")
-async def debug_firestore():
-    """Debug endpoint to check Firestore data"""
+@app.get("/debug/firebase-config")
+async def debug_firebase_config():
+    """Debug Firebase configuration"""
     try:
-        debug_info = {
+        config_info = {
+            "firebase_project_id": settings.firebase_project_id,
+            "firebase_client_email": settings.firebase_client_email,
+            "firebase_private_key_length": len(settings.firebase_private_key) if settings.firebase_private_key else 0,
+            "firebase_private_key_preview": settings.firebase_private_key[:100] + "..." if settings.firebase_private_key else "Not set",
+            "firebase_private_key_starts_with": settings.firebase_private_key.startswith("-----BEGIN PRIVATE KEY-----") if settings.firebase_private_key else False,
+            "firebase_private_key_ends_with": settings.firebase_private_key.endswith("-----END PRIVATE KEY-----\n") if settings.firebase_private_key else False,
+            "firebase_private_key_has_newlines": "\\n" in settings.firebase_private_key if settings.firebase_private_key else False,
             "firestore_initialized": firestore_service.initialized,
-            "patients_count": 0,
-            "emrs_count": 0,
-            "patients_sample": [],
-            "emrs_sample": [],
-            "errors": []
+            "firebase_apps_count": len(firebase_admin._apps) if hasattr(firebase_admin, '_apps') else 0
         }
         
-        if not firestore_service.initialized:
-            debug_info["errors"].append("Firestore not initialized")
-            return debug_info
-        
-        # Get patients
-        try:
-            patients = await firestore_service.get_all_patients()
-            debug_info["patients_count"] = len(patients)
-            debug_info["patients_sample"] = patients[:3]  # First 3 patients
-        except Exception as e:
-            debug_info["errors"].append(f"Error getting patients: {str(e)}")
-        
-        # Get EMRs directly
-        try:
-            docs = firestore_service.db.collection('emrs').get()
-            emrs = []
-            for doc in docs:
-                emr_data = doc.to_dict()
-                emr_data['emr_id'] = doc.id
-                emrs.append(emr_data)
-            
-            debug_info["emrs_count"] = len(emrs)
-            debug_info["emrs_sample"] = emrs[:3]  # First 3 EMRs
-        except Exception as e:
-            debug_info["errors"].append(f"Error getting EMRs: {str(e)}")
-        
-        return debug_info
+        return config_info
         
     except Exception as e:
         return {
             "error": str(e),
-            "firestore_initialized": firestore_service.initialized if hasattr(firestore_service, 'initialized') else False
+            "firebase_project_id": settings.firebase_project_id if hasattr(settings, 'firebase_project_id') else "Not available"
         }
         
 # Production endpoints
