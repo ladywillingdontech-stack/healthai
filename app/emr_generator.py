@@ -16,25 +16,52 @@ from app.models import EMRCreate, EMR
 
 class EMRGenerator:
     def __init__(self):
+        self.bucket = None
+        self.initialized = False
+        
+        # Only initialize if we have the required environment variables
+        if not all([
+            settings.firebase_project_id,
+            settings.firebase_private_key,
+            settings.firebase_client_email
+        ]):
+            print("⚠️ Firebase environment variables not set - EMR generator disabled")
+            return
+            
         # Initialize Firebase
         if not firebase_admin._apps:
-            cred = credentials.Certificate({
-                "type": "service_account",
-                "project_id": settings.firebase_project_id,
-                "private_key_id": settings.firebase_private_key_id,
-                "private_key": settings.firebase_private_key,
-                "client_email": settings.firebase_client_email,
-                "client_id": settings.firebase_client_id,
-                "auth_uri": settings.firebase_auth_uri,
-                "token_uri": settings.firebase_token_uri,
-                "auth_provider_x509_cert_url": settings.firebase_auth_provider_x509_cert_url,
-                "client_x509_cert_url": settings.firebase_client_x509_cert_url
-            })
-            firebase_admin.initialize_app(cred, {
-                'storageBucket': f"{settings.firebase_project_id}.appspot.com"
-            })
-        
-        self.bucket = storage.bucket()
+            try:
+                cred = credentials.Certificate({
+                    "type": "service_account",
+                    "project_id": settings.firebase_project_id,
+                    "private_key_id": settings.firebase_private_key_id,
+                    "private_key": settings.firebase_private_key.replace('\\n', '\n'),
+                    "client_email": settings.firebase_client_email,
+                    "client_id": settings.firebase_client_id,
+                    "auth_uri": settings.firebase_auth_uri,
+                    "token_uri": settings.firebase_token_uri,
+                    "auth_provider_x509_cert_url": settings.firebase_auth_provider_x509_cert_url,
+                    "client_x509_cert_url": settings.firebase_client_x509_cert_url
+                })
+                firebase_admin.initialize_app(cred, {
+                    'storageBucket': f"{settings.firebase_project_id}.appspot.com"
+                })
+                self.bucket = storage.bucket()
+                self.initialized = True
+                print("✅ EMR Generator initialized successfully!")
+            except Exception as e:
+                print(f"⚠️ EMR Generator initialization failed: {e}")
+                print("⚠️ EMR generation will be disabled")
+                self.bucket = None
+                self.initialized = False
+        else:
+            try:
+                self.bucket = storage.bucket()
+                self.initialized = True
+            except Exception as e:
+                print(f"⚠️ EMR Generator bucket creation failed: {e}")
+                self.bucket = None
+                self.initialized = False
 
     def generate_pdf(self, emr_data: EMRCreate, patient_data: Dict[str, Any]) -> str:
         """Generate PDF EMR document"""
