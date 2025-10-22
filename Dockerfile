@@ -35,7 +35,8 @@ WORKDIR /app
 # Copy application code
 COPY . .
 # Run application
-CMD ["hypercorn", "main:app", "--bind", "::"]
+CMD ["hypercorn", "app.main:app", "--bind", "::"]
+
 
 
 
