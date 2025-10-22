@@ -43,8 +43,8 @@ ENV PYTHONDONTWRITEBYTECODE=1
 # Expose port
 EXPOSE 8000
 
-# Run the application
-CMD ["python", "app/main.py"]
+
+
 
 
 
