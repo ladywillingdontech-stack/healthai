@@ -14,6 +14,17 @@ from app.models import UserRole, UserStatus, User, UserResponse
 class AuthService:
     def __init__(self):
         """Initialize authentication service"""
+        self.initialized = False
+        
+        # Only initialize if we have the required environment variables
+        if not all([
+            settings.firebase_project_id,
+            settings.firebase_private_key,
+            settings.firebase_client_email
+        ]):
+            print("⚠️ Firebase environment variables not set - Auth service disabled")
+            return
+            
         if not firebase_admin._apps:
             try:
                 # Use environment variables for Firebase credentials
@@ -21,7 +32,7 @@ class AuthService:
                     "type": "service_account",
                     "project_id": settings.firebase_project_id,
                     "private_key_id": settings.firebase_private_key_id,
-                    "private_key": settings.firebase_private_key,
+                    "private_key": settings.firebase_private_key.replace('\\n', '\n'),
                     "client_email": settings.firebase_client_email,
                     "client_id": settings.firebase_client_id,
                     "auth_uri": settings.firebase_auth_uri,
@@ -33,9 +44,14 @@ class AuthService:
                 print("🔧 Initializing Firebase Auth with environment credentials...")
                 cred = credentials.Certificate(firebase_config)
                 firebase_admin.initialize_app(cred)
+                self.initialized = True
                 print("✅ Firebase Auth initialized successfully!")
             except Exception as e:
                 print(f"❌ Firebase Auth initialization failed: {e}")
+                print("⚠️ Authentication will be disabled")
+                self.initialized = False
+        else:
+            self.initialized = True
     
     def verify_token(self, token: str) -> Optional[Dict[str, Any]]:
         """Verify Firebase ID token and return user info"""
