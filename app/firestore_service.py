@@ -14,6 +14,18 @@ from app.config import settings
 class FirestoreService:
     def __init__(self):
         """Initialize Firestore service"""
+        self.db = None
+        self.initialized = False
+        
+        # Only initialize if we have the required environment variables
+        if not all([
+            settings.firebase_project_id,
+            settings.firebase_private_key,
+            settings.firebase_client_email
+        ]):
+            print("⚠️ Firebase environment variables not set - Firestore disabled")
+            return
+            
         # Initialize Firebase Admin SDK
         if not firebase_admin._apps:
             try:
@@ -22,7 +34,7 @@ class FirestoreService:
                     "type": "service_account",
                     "project_id": settings.firebase_project_id,
                     "private_key_id": settings.firebase_private_key_id,
-                    "private_key": settings.firebase_private_key,
+                    "private_key": settings.firebase_private_key.replace('\\n', '\n'),
                     "client_email": settings.firebase_client_email,
                     "client_id": settings.firebase_client_id,
                     "auth_uri": settings.firebase_auth_uri,
@@ -37,18 +49,29 @@ class FirestoreService:
                     'storageBucket': f"{settings.firebase_project_id}.appspot.com"
                 })
                 self.db = firestore.client()
+                self.initialized = True
                 print("✅ Firebase initialized successfully!")
                 
             except Exception as e:
                 print(f"⚠️ Firestore initialization failed: {e}")
-                print("⚠️ Running in development mode without Firestore")
+                print("⚠️ Running without Firestore - some features will be disabled")
                 self.db = None
+                self.initialized = False
         else:
-            self.db = firestore.client()
+            try:
+                self.db = firestore.client()
+                self.initialized = True
+            except Exception as e:
+                print(f"⚠️ Firestore client creation failed: {e}")
+                self.db = None
+                self.initialized = False
     
     # Patient Management
     async def create_patient(self, patient_data: Dict) -> str:
         """Create a new patient document"""
+        if not self.initialized or not self.db:
+            raise HTTPException(status_code=503, detail="Firestore not available")
+            
         try:
             if self.db is None:
                 print("⚠️ Firestore not initialized, cannot create patient")
