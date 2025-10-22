@@ -444,16 +444,6 @@ async def send_whatsapp_message(message_data: dict):
     except Exception as e:
         return {"success": False, "error": str(e)}
 
-# Authentication endpoints
-@app.post("/auth/login")
-async def login(credentials: dict):
-    """User login"""
-    try:
-        result = await auth_service.login(credentials["email"], credentials["password"])
-        return {"success": True, "result": result}
-        
-    except Exception as e:
-        return {"success": False, "error": str(e)}
 
 @app.post("/auth/register")
 async def register(user_data: dict):
