@@ -51,10 +51,45 @@ async def root_head() -> Response:
 # Health check endpoint for Railway
 @app.get("/health")
 async def health_check():
+    """Health check endpoint to verify all services"""
+    services_status = {
+        "app": "running",
+        "firestore": "checking...",
+        "openai": "checking...",
+        "whatsapp": "checking..."
+    }
+    
+    try:
+        # Check Firestore
+        if firestore_service.initialized:
+            services_status["firestore"] = "available"
+        else:
+            services_status["firestore"] = "unavailable"
+    except:
+        services_status["firestore"] = "error"
+    
+    try:
+        # Check OpenAI
+        if settings.openai_api_key and len(settings.openai_api_key) > 10:
+            services_status["openai"] = "available"
+        else:
+            services_status["openai"] = "unavailable"
+    except:
+        services_status["openai"] = "error"
+    
+    try:
+        # Check WhatsApp
+        if settings.whatsapp_access_token and len(settings.whatsapp_access_token) > 10:
+            services_status["whatsapp"] = "available"
+        else:
+            services_status["whatsapp"] = "unavailable"
+    except:
+        services_status["whatsapp"] = "error"
+    
     return {
         "status": "healthy",
-        "timestamp": datetime.now().isoformat(),
-        "service": "Health AI Bot API"
+        "services": services_status,
+        "timestamp": datetime.now().isoformat()
     }
 
 # Production endpoints
