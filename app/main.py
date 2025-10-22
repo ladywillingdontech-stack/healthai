@@ -371,24 +371,62 @@ async def get_all_emrs():
     try:
         all_emrs = []
         
-        # Get all patients first
-        patients_response = await firestore_service.get_all_patients()
+        # First try to get EMRs directly from the emrs collection
+        try:
+            docs = firestore_service.db.collection('emrs').get()
+            direct_emrs = []
+            for doc in docs:
+                emr_data = doc.to_dict()
+                emr_data['emr_id'] = doc.id
+                direct_emrs.append(emr_data)
+            
+            if direct_emrs:
+                print(f"📋 Found {len(direct_emrs)} EMRs directly from emrs collection")
+                # Try to enrich with patient data
+                for emr in direct_emrs:
+                    patient_id = emr.get('patient_id')
+                    if patient_id:
+                        try:
+                            patient = await firestore_service.get_patient(patient_id)
+                            if patient:
+                                emr['patient_info'] = {
+                                    'patient_id': patient_id,
+                                    'name': patient.get('demographics', {}).get('name', 'Unknown'),
+                                    'age': patient.get('demographics', {}).get('age', 'Unknown'),
+                                    'phone': patient.get('demographics', {}).get('phone_number', 'Unknown')
+                                }
+                        except:
+                            emr['patient_info'] = {
+                                'patient_id': patient_id,
+                                'name': 'Unknown',
+                                'age': 'Unknown',
+                                'phone': 'Unknown'
+                            }
+                all_emrs = direct_emrs
+        except Exception as e:
+            print(f"⚠️ Error getting EMRs directly: {e}")
         
-        # Get EMRs for each patient
-        for patient in patients_response:
-            patient_id = patient.get('patient_id', '')
-            if patient_id:
-                emrs = await firestore_service.get_patient_emrs(patient_id)
-                if emrs:
-                    # Add patient info to each EMR
-                    for emr in emrs:
-                        emr['patient_info'] = {
-                            'patient_id': patient_id,
-                            'name': patient.get('demographics', {}).get('name', 'Unknown'),
-                            'age': patient.get('demographics', {}).get('age', 'Unknown'),
-                            'phone': patient.get('demographics', {}).get('phone_number', 'Unknown')
-                        }
-                    all_emrs.extend(emrs)
+        # If no EMRs found directly, try the old method
+        if not all_emrs:
+            print("📋 Trying to get EMRs via patients...")
+            # Get all patients first
+            patients_response = await firestore_service.get_all_patients()
+            
+            # Get EMRs for each patient
+            for patient in patients_response:
+                patient_id = patient.get('patient_id', '')
+                if patient_id:
+                    emrs = await firestore_service.get_patient_emrs(patient_id)
+                    if emrs:
+                        # Add patient info to each EMR
+                        for emr in emrs:
+                            emr['patient_info'] = {
+                                'patient_id': patient_id,
+                                'name': patient.get('demographics', {}).get('name', 'Unknown'),
+                                'age': patient.get('demographics', {}).get('age', 'Unknown'),
+                                'phone': patient.get('demographics', {}).get('phone_number', 'Unknown')
+                            }
+                        all_emrs.extend(emrs)
         
         # Sort by creation date (newest first)
         all_emrs.sort(key=lambda x: x.get('created_at', ''), reverse=True)
