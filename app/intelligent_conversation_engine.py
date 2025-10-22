@@ -3,10 +3,13 @@ import openai
 from datetime import datetime
 from typing import Dict, Any, List
 from app.firestore_service import FirestoreService
+from app.config import settings
 
 class IntelligentConversationEngine:
     def __init__(self):
         self.firestore_service = FirestoreService()
+        # Configure OpenAI
+        openai.api_key = settings.openai_api_key
     
     async def process_patient_response(self, patient_text: str, patient_id: str) -> Dict[str, Any]:
         """Main method to process patient responses intelligently"""
