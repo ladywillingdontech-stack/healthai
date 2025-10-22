@@ -92,11 +92,11 @@ async def health_check():
         "timestamp": datetime.now().isoformat()
     }
 
-@app.get("/debug/firebase-config")
-async def debug_firebase_config():
-    """Debug Firebase configuration"""
+@app.get("/debug/env-vars")
+async def debug_env_vars():
+    """Debug environment variables without Firebase dependencies"""
     try:
-        config_info = {
+        env_info = {
             "firebase_project_id": settings.firebase_project_id,
             "firebase_client_email": settings.firebase_client_email,
             "firebase_private_key_length": len(settings.firebase_private_key) if settings.firebase_private_key else 0,
@@ -104,16 +104,17 @@ async def debug_firebase_config():
             "firebase_private_key_starts_with": settings.firebase_private_key.startswith("-----BEGIN PRIVATE KEY-----") if settings.firebase_private_key else False,
             "firebase_private_key_ends_with": settings.firebase_private_key.endswith("-----END PRIVATE KEY-----\n") if settings.firebase_private_key else False,
             "firebase_private_key_has_newlines": "\\n" in settings.firebase_private_key if settings.firebase_private_key else False,
-            "firestore_initialized": firestore_service.initialized,
-            "firebase_apps_count": len(firebase_admin._apps) if hasattr(firebase_admin, '_apps') else 0
+            "openai_api_key_length": len(settings.openai_api_key) if settings.openai_api_key else 0,
+            "openai_api_key_configured": bool(settings.openai_api_key and len(settings.openai_api_key) > 10),
+            "whatsapp_access_token_length": len(settings.whatsapp_access_token) if settings.whatsapp_access_token else 0,
+            "whatsapp_configured": bool(settings.whatsapp_access_token and len(settings.whatsapp_access_token) > 10)
         }
         
-        return config_info
+        return env_info
         
     except Exception as e:
         return {
-            "error": str(e),
-            "firebase_project_id": settings.firebase_project_id if hasattr(settings, 'firebase_project_id') else "Not available"
+            "error": str(e)
         }
         
 # Production endpoints
