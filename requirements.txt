@@ -15,9 +15,6 @@ langchain-openai==0.0.2
 chromadb==0.4.18
 tiktoken==0.5.2
 
-# Voice Processing
-openai-whisper>=20231117
-elevenlabs==0.2.26
 
 # WhatsApp Integration - Meta WhatsApp Business API
 requests==2.32.5
