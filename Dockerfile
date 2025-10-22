@@ -34,14 +34,11 @@ WORKDIR /app
 
 # Copy application code
 COPY . .
+# Run application
+CMD ["hypercorn", "main:app", "--bind", "::"]
 
-# Set environment variables
-ENV PORT=8000
-ENV PYTHONUNBUFFERED=1
-ENV PYTHONDONTWRITEBYTECODE=1
 
-# Expose port
-EXPOSE 8000
+
 
 
 
