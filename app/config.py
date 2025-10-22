@@ -32,7 +32,7 @@ class Settings(BaseSettings):
     
     # Database Configuration - Firestore
     firebase_service_account_path: str = "firebase-service-account.json"
-     chroma_db_path: str = ""  # Will default to ./chroma_db if not set
+     chroma_db_path: str = "./chroma_db"
     
     # Security
     secret_key: str = ""
