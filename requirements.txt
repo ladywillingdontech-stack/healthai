@@ -36,3 +36,4 @@ passlib[bcrypt]==1.7.4
 
 # Production dependencies
 gunicorn==21.2.0
+hypercorn==0.16.0
