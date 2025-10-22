@@ -92,6 +92,53 @@ async def health_check():
         "timestamp": datetime.now().isoformat()
     }
 
+@app.get("/debug/firestore")
+async def debug_firestore():
+    """Debug endpoint to check Firestore data"""
+    try:
+        debug_info = {
+            "firestore_initialized": firestore_service.initialized,
+            "patients_count": 0,
+            "emrs_count": 0,
+            "patients_sample": [],
+            "emrs_sample": [],
+            "errors": []
+        }
+        
+        if not firestore_service.initialized:
+            debug_info["errors"].append("Firestore not initialized")
+            return debug_info
+        
+        # Get patients
+        try:
+            patients = await firestore_service.get_all_patients()
+            debug_info["patients_count"] = len(patients)
+            debug_info["patients_sample"] = patients[:3]  # First 3 patients
+        except Exception as e:
+            debug_info["errors"].append(f"Error getting patients: {str(e)}")
+        
+        # Get EMRs directly
+        try:
+            docs = firestore_service.db.collection('emrs').get()
+            emrs = []
+            for doc in docs:
+                emr_data = doc.to_dict()
+                emr_data['emr_id'] = doc.id
+                emrs.append(emr_data)
+            
+            debug_info["emrs_count"] = len(emrs)
+            debug_info["emrs_sample"] = emrs[:3]  # First 3 EMRs
+        except Exception as e:
+            debug_info["errors"].append(f"Error getting EMRs: {str(e)}")
+        
+        return debug_info
+        
+    except Exception as e:
+        return {
+            "error": str(e),
+            "firestore_initialized": firestore_service.initialized if hasattr(firestore_service, 'initialized') else False
+        }
+        
 # Production endpoints
 @app.post("/voice-conversation", response_model=VoiceResponse)
 async def voice_conversation(audio: UploadFile = File(...), patient_id: str = "default_patient"):
