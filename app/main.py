@@ -542,15 +542,39 @@ async def whatsapp_webhook_verify(
 ):
     """Verify WhatsApp webhook"""
     try:
-        if hub_mode == "subscribe" and hub_verify_token == settings.whatsapp_verify_token:
-            print("✅ Webhook verified successfully")
-            return hub_challenge
-        else:
-            print("❌ Webhook verification failed")
+        print(f"🔍 Webhook verification attempt:")
+        print(f"  hub_mode: '{hub_mode}'")
+        print(f"  hub_challenge: '{hub_challenge}'")
+        print(f"  hub_verify_token: '{hub_verify_token}'")
+        print(f"  expected_token: '{settings.whatsapp_verify_token}'")
+        print(f"  tokens_match: {hub_verify_token == settings.whatsapp_verify_token}")
+        print(f"  mode_is_subscribe: {hub_mode == 'subscribe'}")
+        
+        # Check if all required parameters are present
+        if not hub_mode or not hub_challenge or not hub_verify_token:
+            print("❌ Missing required parameters")
+            raise HTTPException(status_code=400, detail="Missing required parameters")
+        
+        # Check if mode is subscribe
+        if hub_mode != "subscribe":
+            print(f"❌ Invalid hub_mode: {hub_mode}")
+            raise HTTPException(status_code=400, detail="Invalid hub_mode")
+        
+        # Check if verify token matches
+        if hub_verify_token != settings.whatsapp_verify_token:
+            print("❌ Token mismatch")
+            print(f"  Received: '{hub_verify_token}'")
+            print(f"  Expected: '{settings.whatsapp_verify_token}'")
             raise HTTPException(status_code=403, detail="Forbidden")
+        
+        print("✅ Webhook verified successfully")
+        return hub_challenge
+        
+    except HTTPException:
+        raise
     except Exception as e:
         print(f"❌ Webhook verification error: {e}")
-        raise HTTPException(status_code=403, detail="Forbidden")
+        raise HTTPException(status_code=500, detail="Internal server error")
 
 @app.post("/whatsapp/webhook")
 async def whatsapp_webhook(request: Request):
