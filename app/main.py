@@ -498,6 +498,20 @@ async def add_message(conversation_id: str, message_data: dict):
     except Exception as e:
         return {"success": False, "error": str(e)}
 
+@app.get("/debug/whatsapp-config")
+async def debug_whatsapp_config():
+    """Debug WhatsApp configuration"""
+    try:
+        config_info = {
+            "whatsapp_verify_token": settings.whatsapp_verify_token,
+            "whatsapp_verify_token_length": len(settings.whatsapp_verify_token) if settings.whatsapp_verify_token else 0,
+            "whatsapp_access_token_length": len(settings.whatsapp_access_token) if settings.whatsapp_access_token else 0,
+            "whatsapp_configured": bool(settings.whatsapp_access_token and settings.whatsapp_verify_token)
+        }
+        return config_info
+    except Exception as e:
+        return {"error": str(e)}
+
 # WhatsApp integration endpoints
 @app.get("/whatsapp/webhook")
 async def whatsapp_webhook_verify(
