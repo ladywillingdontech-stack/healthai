@@ -512,6 +512,27 @@ async def debug_whatsapp_config():
     except Exception as e:
         return {"error": str(e)}
 
+@app.get("/test-webhook")
+async def test_webhook_verification():
+    """Test webhook verification with sample data"""
+    try:
+        # Simulate Facebook's verification request
+        test_params = {
+            "hub_mode": "subscribe",
+            "hub_challenge": "test_challenge_123",
+            "hub_verify_token": settings.whatsapp_verify_token
+        }
+        
+        result = {
+            "test_params": test_params,
+            "verification_would_pass": test_params["hub_verify_token"] == settings.whatsapp_verify_token,
+            "current_token": settings.whatsapp_verify_token
+        }
+        
+        return result
+    except Exception as e:
+        return {"error": str(e)}
+
 # WhatsApp integration endpoints
 @app.get("/whatsapp/webhook")
 async def whatsapp_webhook_verify(
