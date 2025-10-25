@@ -153,6 +153,10 @@ async def voice_conversation(audio: UploadFile = File(...), patient_id: str = "d
             
             updated_patient_data = conversation_result.get("patient_data", {})
             print(f"Updated patient data: {updated_patient_data.get('demographics', {})}")
+
+             # Save updated patient data to Firestore
+            await firestore_service.update_patient(patient_id, updated_patient_data)
+            print(f"✅ Patient data updated in Firestore. Current phase: {updated_patient_data.get('current_phase')}")
             
             # Step 3: Generate AI response text
             response_text = conversation_result.get('response_text', 'I understand. Please tell me more about your symptoms.')
