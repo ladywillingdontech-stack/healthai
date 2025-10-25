@@ -196,6 +196,8 @@ class IntelligentConversationEngine:
             return await self._handle_symptom_exploration_phase(patient_text, patient_data)
         elif current_phase == "assessment":
             return await self._handle_assessment_phase(patient_text, patient_data)
+        elif current_phase == "completed":
+            return await self._handle_completed_phase(patient_text, patient_data)
         else:
             return await self._handle_general_response(patient_text, patient_data)
     
@@ -391,9 +393,22 @@ class IntelligentConversationEngine:
         
         return {
             "response_text": response_text,
-            "next_phase": "assessment",
+            "next_phase": "completed",
             "patient_data": patient_data,
             "action": "generate_emr"
+        }
+    
+    async def _handle_completed_phase(self, patient_text: str, patient_data: Dict[str, Any]) -> Dict[str, Any]:
+        """Handle completed phase - conversation is finished"""
+        
+        # If conversation is already completed, just acknowledge
+        response_text = "✅ آپ کا طبی رپورٹ تیار ہو گیا ہے۔ اللہ حافظ!"
+        
+        return {
+            "response_text": response_text,
+            "next_phase": "completed",
+            "patient_data": patient_data,
+            "action": "end_conversation"
         }
     
     async def _generate_assessment(self, patient_data: Dict[str, Any]) -> Dict[str, Any]:
