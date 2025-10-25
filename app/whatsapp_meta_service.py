@@ -309,12 +309,26 @@ class MetaWhatsAppService:
             message_data = self.process_webhook_data(webhook_data)
             
             if message_data:
+                print(f"📱 Received WhatsApp message: {message_data}")
+                
                 # Mark message as read
                 if message_data.get('message_id'):
                     self.mark_message_as_read(message_data['message_id'])
                 
-                # Process the message (integrate with your conversation engine)
-                # This is where you'd call your intelligent_conversation_engine
+                # Process the message based on type
+                from_number = message_data.get('from_number', '')
+                message_type = message_data.get('type', 'text')
+                
+                if message_type == 'audio':
+                    print(f"🎵 Processing voice message from {from_number}")
+                    # Handle voice message
+                    await self.handle_voice_message(message_data)
+                elif message_type == 'text':
+                    print(f"💬 Processing text message from {from_number}")
+                    # Handle text message
+                    await self.handle_text_message(message_data)
+                else:
+                    print(f"❓ Unknown message type: {message_type}")
                 
                 return {
                     "success": True,
@@ -333,6 +347,128 @@ class MetaWhatsAppService:
                 "success": False,
                 "error": str(e)
             }
+    
+    async def handle_voice_message(self, message_data: Dict[str, Any]):
+        """Handle incoming voice message"""
+        try:
+            from_number = message_data.get('from_number', '')
+            media_id = message_data.get('media_id', '')
+            
+            if not media_id:
+                print("❌ No media ID found in voice message")
+                return
+            
+            # Download the voice message
+            media_url = self.get_media_url(media_id)
+            if not media_url:
+                print("❌ Could not get media URL")
+                return
+            
+            # Download audio file
+            import tempfile
+            import os
+            with tempfile.NamedTemporaryFile(delete=False, suffix=".ogg") as tmp_file:
+                if self.download_media(media_url, tmp_file.name):
+                    print(f"✅ Downloaded voice message to {tmp_file.name}")
+                    
+                    # Process voice message using your voice processing
+                    from app.voice_processing import voice_processor
+                    from app.intelligent_conversation_engine import intelligent_conversation_engine
+                    
+                    # Convert speech to text
+                    text = await voice_processor.speech_to_text(tmp_file.name)
+                    print(f"🎤 Transcribed text: {text}")
+                    
+                    if text:
+                        # Process conversation
+                        conversation_result = await intelligent_conversation_engine.process_patient_response(
+                            patient_text=text,
+                            patient_id=from_number
+                        )
+                        
+                        # Get AI response
+                        response_text = conversation_result.get('response_text', 'I understand. Please tell me more.')
+                        print(f"🤖 AI Response: {response_text}")
+                        
+                        # Convert response to speech
+                        audio_file = voice_processor.text_to_speech(response_text)
+                        print(f"🔊 Generated audio: {audio_file}")
+                        
+                        # Send voice response back
+                        if audio_file:
+                            # Upload audio to WhatsApp
+                            uploaded_media_id = self.upload_media(audio_file, "audio")
+                            if uploaded_media_id:
+                                self.send_media_by_id(from_number, uploaded_media_id, "audio")
+                                print(f"✅ Sent voice response to {from_number}")
+                            else:
+                                # Fallback to text message
+                                self.send_text_message(from_number, response_text)
+                                print(f"✅ Sent text response to {from_number}")
+                        else:
+                            # Fallback to text message
+                            self.send_text_message(from_number, response_text)
+                            print(f"✅ Sent text response to {from_number}")
+                    
+                    # Clean up temp file
+                    os.unlink(tmp_file.name)
+                else:
+                    print("❌ Failed to download voice message")
+                    
+        except Exception as e:
+            print(f"❌ Error handling voice message: {e}")
+    
+    async def handle_text_message(self, message_data: Dict[str, Any]):
+        """Handle incoming text message"""
+        try:
+            from_number = message_data.get('from_number', '')
+            text = message_data.get('text', '')
+            
+            print(f"💬 Processing text: {text}")
+            
+            # Process conversation
+            from app.intelligent_conversation_engine import intelligent_conversation_engine
+            
+            conversation_result = await intelligent_conversation_engine.process_patient_response(
+                patient_text=text,
+                patient_id=from_number
+            )
+            
+            # Get AI response
+            response_text = conversation_result.get('response_text', 'I understand. Please tell me more.')
+            print(f"🤖 AI Response: {response_text}")
+            
+            # Send text response back
+            self.send_text_message(from_number, response_text)
+            print(f"✅ Sent text response to {from_number}")
+            
+        except Exception as e:
+            print(f"❌ Error handling text message: {e}")
+    
+    def mark_message_as_read(self, message_id: str) -> bool:
+        """Mark a message as read"""
+        try:
+            url = f"{self.base_url}/messages"
+            headers = {
+                "Authorization": f"Bearer {self.access_token}",
+                "Content-Type": "application/json"
+            }
+            
+            data = {
+                "messaging_product": "whatsapp",
+                "status": "read",
+                "message_id": message_id
+            }
+            
+            response = requests.post(url, headers=headers, json=data)
+            response.raise_for_status()
+            
+            print(f"✅ Message {message_id} marked as read")
+            return True
+            
+        except requests.exceptions.RequestException as e:
+            print(f"❌ Error marking message as read: {e}")
+            return False
     
     def send_message(self, phone_number: str, message: str) -> bool:
         """Send a WhatsApp message"""
