@@ -184,10 +184,17 @@ class MetaWhatsAppService:
             }
             
             response = requests.post(url, headers=headers, json=data)
-            response.raise_for_status()
             
-            print(f"✅ Media message sent to {to_number}")
-            return True
+            print(f"📤 Media send response status: {response.status_code}")
+            print(f"📤 Media send response headers: {dict(response.headers)}")
+            print(f"📤 Media send response body: {response.text}")
+            
+            if response.status_code == 200:
+                print(f"✅ Media message sent to {to_number}")
+                return True
+            else:
+                print(f"❌ Media send error: {response.status_code} - {response.text}")
+                return False
             
         except requests.exceptions.RequestException as e:
             print(f"❌ Error sending media by ID: {e}")
