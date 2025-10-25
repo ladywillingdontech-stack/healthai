@@ -302,7 +302,7 @@ class MetaWhatsAppService:
             print(f"❌ Error processing webhook data: {e}")
             return {}
     
-    def handle_webhook(self, webhook_data: Dict[str, Any]) -> Dict[str, Any]:
+    async def handle_webhook(self, webhook_data: Dict[str, Any]) -> Dict[str, Any]:
         """Handle incoming webhook data from WhatsApp"""
         try:
             # Process the webhook data
