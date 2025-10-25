@@ -92,7 +92,13 @@ class VoiceProcessor:
             response = requests.post(url, json=data, headers=headers)
             
             if response.status_code == 200:
-                return response.content
+                # Save audio to temporary file
+                with tempfile.NamedTemporaryFile(delete=False, suffix=".mp3") as temp_file:
+                    temp_file.write(response.content)
+                    temp_file_path = temp_file.name
+                
+                print(f"✅ Audio saved to: {temp_file_path}")
+                return temp_file_path
             else:
                 print(f"ElevenLabs API error: {response.status_code} - {response.text}")
                 return None
