@@ -67,8 +67,8 @@ class VoiceProcessor:
             print(f"Error in speech-to-text: {e}")
             return ""
 
-    def text_to_speech(self, text: str) -> Optional[bytes]:
-        """Convert text to Urdu speech using ElevenLabs"""
+    def text_to_speech(self, text: str) -> Optional[str]:
+        """Convert text to Urdu speech using ElevenLabs and save to file"""
         try:
             url = f"https://api.elevenlabs.io/v1/text-to-speech/{self.elevenlabs_voice_id}"
             
