@@ -535,40 +535,31 @@ async def test_webhook_verification():
 
 # WhatsApp integration endpoints
 @app.get("/whatsapp/webhook")
-async def whatsapp_webhook_verify(
-    hub_mode: str = None,
-    hub_challenge: str = None,
-    hub_verify_token: str = None
-):
+async def whatsapp_webhook_verify(request: Request):
     """Verify WhatsApp webhook"""
     try:
+        # Extract query params sent by Meta (using dots, not underscores)
+        mode = request.query_params.get("hub.mode")
+        token = request.query_params.get("hub.verify_token")
+        challenge = request.query_params.get("hub.challenge")
+        
         print(f"🔍 Webhook verification attempt:")
-        print(f"  hub_mode: '{hub_mode}'")
-        print(f"  hub_challenge: '{hub_challenge}'")
-        print(f"  hub_verify_token: '{hub_verify_token}'")
+        print(f"  hub.mode: '{mode}'")
+        print(f"  hub.challenge: '{challenge}'")
+        print(f"  hub.verify_token: '{token}'")
         print(f"  expected_token: '{settings.whatsapp_verify_token}'")
-        print(f"  tokens_match: {hub_verify_token == settings.whatsapp_verify_token}")
-        print(f"  mode_is_subscribe: {hub_mode == 'subscribe'}")
+        print(f"  tokens_match: {token == settings.whatsapp_verify_token}")
+        print(f"  mode_is_subscribe: {mode == 'subscribe'}")
         
-        # Check if all required parameters are present
-        if not hub_mode or not hub_challenge or not hub_verify_token:
-            print("❌ Missing required parameters")
-            raise HTTPException(status_code=400, detail="Missing required parameters")
-        
-        # Check if mode is subscribe
-        if hub_mode != "subscribe":
-            print(f"❌ Invalid hub_mode: {hub_mode}")
-            raise HTTPException(status_code=400, detail="Invalid hub_mode")
-        
-        # Check if verify token matches
-        if hub_verify_token != settings.whatsapp_verify_token:
-            print("❌ Token mismatch")
-            print(f"  Received: '{hub_verify_token}'")
-            print(f"  Expected: '{settings.whatsapp_verify_token}'")
+        # Check if the mode and token are correct
+        if mode == "subscribe" and token == settings.whatsapp_verify_token:
+            print("✅ Webhook verified successfully")
+            return int(challenge)  # Return challenge as integer
+        else:
+            print("❌ Webhook verification failed")
+            print(f"  Mode check: {mode == 'subscribe'}")
+            print(f"  Token check: {token == settings.whatsapp_verify_token}")
             raise HTTPException(status_code=403, detail="Forbidden")
-        
-        print("✅ Webhook verified successfully")
-        return hub_challenge
         
     except HTTPException:
         raise
