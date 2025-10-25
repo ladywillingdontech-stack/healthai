@@ -14,36 +14,9 @@ class MetaWhatsAppService:
         self.access_token = settings.whatsapp_access_token
         self.phone_number_id = settings.whatsapp_phone_number_id
         self.verify_token = settings.whatsapp_verify_token
-        self.api_version = settings.whatsapp_api_version
-        self.base_url = f"https://graph.facebook.com/{self.api_version}/{self.phone_number_id}"
+        # Let WhatsApp decide the API version automatically
+        self.base_url = f"https://graph.facebook.com/{self.phone_number_id}"
         
-    def send_text_message(self, to_number: str, message: str) -> bool:
-        """Send a text message via WhatsApp"""
-        try:
-            url = f"{self.base_url}/messages"
-            headers = {
-                "Authorization": f"Bearer {self.access_token}",
-                "Content-Type": "application/json"
-            }
-            
-            data = {
-                "messaging_product": "whatsapp",
-                "to": to_number,
-                "type": "text",
-                "text": {
-                    "body": message
-                }
-            }
-            
-            response = requests.post(url, headers=headers, json=data)
-            response.raise_for_status()
-            
-            print(f"✅ Text message sent to {to_number}")
-            return True
-            
-        except requests.exceptions.RequestException as e:
-            print(f"❌ Error sending text message: {e}")
-            return False
     
     def send_voice_message(self, to_number: str, audio_url: str) -> bool:
         """Send a voice message via WhatsApp"""
@@ -138,7 +111,7 @@ class MetaWhatsAppService:
     def upload_media(self, media_file_path: str, media_type: str = "audio") -> Optional[str]:
         """Upload media file to WhatsApp servers and get media ID"""
         try:
-            url = f"https://graph.facebook.com/{self.api_version}/{self.phone_number_id}/media"
+            url = f"https://graph.facebook.com/{self.phone_number_id}/media"
             headers = {
                 "Authorization": f"Bearer {self.access_token}"
             }
@@ -153,16 +126,23 @@ class MetaWhatsAppService:
                 }
                 
                 response = requests.post(url, headers=headers, files=files, data=data)
-                response.raise_for_status()
                 
-                result = response.json()
-                media_id = result.get('id')
+                print(f"🔊 Upload response status: {response.status_code}")
+                print(f"🔊 Upload response headers: {dict(response.headers)}")
+                print(f"🔊 Upload response body: {response.text}")
                 
-                if media_id:
-                    print(f"✅ Media uploaded successfully. Media ID: {media_id}")
-                    return media_id
+                if response.status_code == 200:
+                    result = response.json()
+                    media_id = result.get('id')
+                    
+                    if media_id:
+                        print(f"✅ Media uploaded successfully. Media ID: {media_id}")
+                        return media_id
+                    else:
+                        print("❌ No media ID returned from upload")
+                        return None
                 else:
-                    print("❌ No media ID returned from upload")
+                    print(f"❌ Upload failed: {response.status_code} - {response.text}")
                     return None
                     
         except requests.exceptions.RequestException as e:
@@ -203,7 +183,7 @@ class MetaWhatsAppService:
     def get_media_url(self, media_id: str) -> Optional[str]:
         """Get media URL from media ID"""
         try:
-            url = f"https://graph.facebook.com/{self.api_version}/{media_id}"
+            url = f"https://graph.facebook.com/{media_id}"
             headers = {
                 "Authorization": f"Bearer {self.access_token}"
             }
@@ -344,12 +324,8 @@ class MetaWhatsAppService:
                     print(f"🎵 Processing voice message from {from_number}")
                     # Handle voice message
                     await self.handle_voice_message(message_data)
-                elif message_type == 'text':
-                    print(f"💬 Processing text message from {from_number}")
-                    # Handle text message
-                    await self.handle_text_message(message_data)
                 else:
-                    print(f"❓ Unknown message type: {message_type}")
+                    print(f"❓ Ignoring non-voice message type: {message_type}")
                 
                 return {
                     "success": True,
@@ -431,14 +407,9 @@ class MetaWhatsAppService:
                                 self.send_media_by_id(from_number, uploaded_media_id, "audio")
                                 print(f"✅ Sent voice response to {from_number}")
                             else:
-                                # Fallback to text message
-                                self.send_text_message(from_number, response_text)
-                                print(f"✅ Sent text response to {from_number}")
+                                print(f"❌ Failed to upload audio, no response sent")
                         else:
-                            # Fallback to text message
-                            print(f"🔊 Audio file invalid, sending text response")
-                            self.send_text_message(from_number, response_text)
-                            print(f"✅ Sent text response to {from_number}")
+                            print(f"❌ Audio file invalid, no response sent")
                     
                     # Clean up temp file
                     os.unlink(tmp_file.name)
@@ -448,43 +419,6 @@ class MetaWhatsAppService:
         except Exception as e:
             print(f"❌ Error handling voice message: {e}")
     
-    async def handle_text_message(self, message_data: Dict[str, Any]):
-        """Handle incoming text message"""
-        try:
-            from_number = message_data.get('from_number', '')
-            text = message_data.get('text', '')
-            
-            print(f"💬 Starting text message processing for {from_number}")
-            print(f"💬 Text content: {text}")
-            
-            if not text:
-                print("❌ No text content found")
-                return
-            
-            # Process conversation
-            print(f"💬 Importing intelligent_conversation_engine...")
-            from app.intelligent_conversation_engine import intelligent_conversation_engine
-            
-            print(f"💬 Processing conversation...")
-            conversation_result = await intelligent_conversation_engine.process_patient_response(
-                patient_text=text,
-                patient_id=from_number
-            )
-            print(f"💬 Conversation result: {conversation_result}")
-            
-            # Get AI response
-            response_text = conversation_result.get('response_text', 'I understand. Please tell me more.')
-            print(f"🤖 AI Response: {response_text}")
-            
-            # Send text response back
-            print(f"💬 Sending text response to {from_number}")
-            success = self.send_text_message(from_number, response_text)
-            print(f"✅ Text response sent: {success}")
-            
-        except Exception as e:
-            print(f"❌ Error handling text message: {e}")
-            import traceback
-            traceback.print_exc()
     
     def mark_message_as_read(self, message_id: str) -> bool:
         """Mark a message as read"""
@@ -511,9 +445,6 @@ class MetaWhatsAppService:
             print(f"❌ Error marking message as read: {e}")
             return False
     
-    def send_message(self, phone_number: str, message: str) -> bool:
-        """Send a WhatsApp message"""
-        return self.send_text_message(phone_number, message)
 
 # Global instance
 whatsapp_service = MetaWhatsAppService()
