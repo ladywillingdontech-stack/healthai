@@ -572,7 +572,7 @@ async def whatsapp_webhook(request: Request):
     """Handle WhatsApp webhook"""
     try:
         body = await request.json()
-        result = whatsapp_service.handle_webhook(body)
+        result = await whatsapp_service.handle_webhook(body)
         return {"success": True, "result": result}
         
     except Exception as e:
