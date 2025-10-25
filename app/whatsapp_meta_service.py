@@ -117,8 +117,21 @@ class MetaWhatsAppService:
             }
             
             with open(media_file_path, 'rb') as file:
+                # Determine correct MIME type based on file extension
+                file_extension = os.path.splitext(media_file_path)[1].lower()
+                mime_type_map = {
+                    '.mp3': 'audio/mpeg',
+                    '.wav': 'audio/wav', 
+                    '.ogg': 'audio/ogg',
+                    '.aac': 'audio/aac',
+                    '.mp4': 'audio/mp4',
+                    '.amr': 'audio/amr',
+                    '.opus': 'audio/opus'
+                }
+                mime_type = mime_type_map.get(file_extension, 'audio/mpeg')
+                
                 files = {
-                    'file': (os.path.basename(media_file_path), file, f'audio/{media_type}')
+                    'file': (os.path.basename(media_file_path), file, mime_type)
                 }
                 data = {
                     'messaging_product': 'whatsapp',
