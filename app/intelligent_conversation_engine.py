@@ -3,13 +3,10 @@ import openai
 from datetime import datetime
 from typing import Dict, Any, List
 from app.firestore_service import FirestoreService
-from app.config import settings
 
 class IntelligentConversationEngine:
     def __init__(self):
         self.firestore_service = FirestoreService()
-        # Configure OpenAI
-        openai.api_key = settings.openai_api_key
     
     async def process_patient_response(self, patient_text: str, patient_id: str) -> Dict[str, Any]:
         """Main method to process patient responses intelligently"""
@@ -283,6 +280,12 @@ class IntelligentConversationEngine:
             patient_data["current_phase"] = "assessment"
             return await self._handle_assessment_phase(patient_text, patient_data)
         
+        # AUTO-TRANSITION: After 12 questions, automatically move to assessment
+        if questions_asked >= 12:
+            print(f"🎯 AUTO-TRANSITION TO ASSESSMENT: Questions={questions_asked}")
+            patient_data["current_phase"] = "assessment"
+            return await self._handle_assessment_phase(patient_text, patient_data)
+        
         # Generate intelligent follow-up question
         question = await self._generate_intelligent_question(patient_text, patient_data)
         
@@ -304,8 +307,9 @@ class IntelligentConversationEngine:
         has_symptoms = len(patient_data.get("symptoms", [])) > 0
         has_medical_history = len(patient_data.get("medical_history", {})) > 0
         
-        # Need at least problem description and some symptoms
-        return has_problem and has_symptoms
+        # More lenient: Need either problem description OR symptoms
+        # This ensures assessment happens even if extraction isn't perfect
+        return has_problem or has_symptoms
     
     async def _generate_intelligent_question(self, patient_text: str, patient_data: Dict[str, Any]) -> str:
         """Generate intelligent follow-up questions based on patient's responses"""
