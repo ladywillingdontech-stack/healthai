@@ -377,11 +377,10 @@ class IntelligentConversationEngine:
         """Handle onboarding phase - collect name, age, phone using AI extraction with fallback"""
         
         demographics = patient_data.get("demographics", {})
-        
-        # First, try simple pattern matching as fallback
         patient_text_lower = patient_text.lower().strip()
         
-        # Simple name extraction patterns
+        # Pattern matching for all three fields
+        # Name patterns
         name_patterns = [
             r"mera naam ([\w\s]+) hai",
             r"mara naam ([\w\s]+) hai", 
@@ -390,22 +389,87 @@ class IntelligentConversationEngine:
             r"my name is ([\w\s]+)"
         ]
         
-        extracted_name = None
-        for pattern in name_patterns:
-            match = re.search(pattern, patient_text_lower, re.IGNORECASE)
-            if match:
-                extracted_name = match.group(1).strip()
-                break
+        # Age patterns
+        age_patterns = [
+            r"umar ([\d]+)",
+            r"age ([\d]+)",
+            r"([\d]+) saal",
+            r"([\d]+) years",
+            r"meri umar ([\d]+)"
+        ]
         
-        # If simple pattern matched, use it
-        if extracted_name and not demographics.get("name"):
-            demographics["name"] = extracted_name
-            print(f"✅ Extracted name via pattern: {extracted_name}")
+        # Phone patterns
+        phone_patterns = [
+            r"phone.*?([\d\s\+\-]+)",
+            r"number.*?([\d\s\+\-]+)",
+            r"([\d]{10,})"
+        ]
         
-        # Try AI extraction if OpenAI is available and name not found
-        if not demographics.get("name") and settings.openai_api_key and len(settings.openai_api_key) > 10:
+        # Extract name
+        if not demographics.get("name"):
+            extracted_name = None
+            for pattern in name_patterns:
+                match = re.search(pattern, patient_text_lower, re.IGNORECASE)
+                if match:
+                    extracted_name = match.group(1).strip()
+                    break
+            
+            if extracted_name:
+                demographics["name"] = extracted_name
+                print(f"✅ Extracted name via pattern: {extracted_name}")
+            else:
+                # Fallback: word after "naam"
+                words = patient_text.split()
+                for i, word in enumerate(words):
+                    if word.lower() in ["naam", "name"] and i + 1 < len(words):
+                        potential_name = words[i + 1].strip().rstrip(".,!?")
+                        if potential_name and len(potential_name) > 2:
+                            demographics["name"] = potential_name
+                            print(f"✅ Extracted name via fallback: {potential_name}")
+                            break
+        
+        # Extract age
+        if not demographics.get("age"):
+            extracted_age = None
+            for pattern in age_patterns:
+                match = re.search(pattern, patient_text_lower, re.IGNORECASE)
+                if match:
+                    extracted_age = match.group(1).strip()
+                    break
+            
+            if extracted_age:
+                demographics["age"] = extracted_age
+                print(f"✅ Extracted age via pattern: {extracted_age}")
+        
+        # Extract phone
+        if not demographics.get("phone_number"):
+            extracted_phone = None
+            for pattern in phone_patterns:
+                match = re.search(pattern, patient_text_lower, re.IGNORECASE)
+                if match:
+                    extracted_phone = re.sub(r'[\s\-\+]', '', match.group(1).strip())
+                    if len(extracted_phone) >= 10:  # Valid phone length
+                        break
+                    extracted_phone = None
+            
+            if extracted_phone:
+                demographics["phone_number"] = extracted_phone
+                print(f"✅ Extracted phone via pattern: {extracted_phone}")
+        
+        # Try AI extraction if OpenAI is available and something is still missing
+        missing_fields = []
+        if not demographics.get("name"):
+            missing_fields.append("name")
+        if not demographics.get("age"):
+            missing_fields.append("age")
+        if not demographics.get("phone_number"):
+            missing_fields.append("phone_number")
+        
+        if missing_fields and settings.openai_api_key and len(settings.openai_api_key) > 10:
             extraction_prompt = f"""
             Extract basic demographics from this response: "{patient_text}"
+            
+            Extract ONLY these missing fields: {', '.join(missing_fields)}
             
             Extract:
             - Name (if mentioned) - look for words like "naam", "name", "mera naam", "my name"
@@ -416,8 +480,8 @@ class IntelligentConversationEngine:
             
             Examples:
             - "mera naam sadia hai" → {{"name": "sadia"}}
-            - "mera naam Fatima hai" → {{"name": "Fatima"}}
-            - "naam Zainab hai" → {{"name": "Zainab"}}
+            - "meri umar 25 hai" → {{"age": "25"}}
+            - "mera phone 923001234567 hai" → {{"phone_number": "923001234567"}}
             """
             
             try:
@@ -438,33 +502,33 @@ class IntelligentConversationEngine:
                         print(f"✅ Extracted name via AI: {extracted['name']}")
                     if extracted.get("age") and not demographics.get("age"):
                         demographics["age"] = extracted["age"]
+                        print(f"✅ Extracted age via AI: {extracted['age']}")
                     if extracted.get("phone_number") and not demographics.get("phone_number"):
                         demographics["phone_number"] = extracted["phone_number"]
+                        print(f"✅ Extracted phone via AI: {extracted['phone_number']}")
             except Exception as e:
                 print(f"⚠️ AI extraction failed: {e}")
-                # If AI fails and pattern didn't match, try extracting name from common phrases
-                if not demographics.get("name"):
-                    # Last resort: try to extract any word after "naam" or "name"
-                    words = patient_text.split()
-                    for i, word in enumerate(words):
-                        if word.lower() in ["naam", "name"] and i + 1 < len(words):
-                            # Next word might be the name
-                            potential_name = words[i + 1].strip().rstrip(".,!?")
-                            if potential_name and len(potential_name) > 2:
-                                demographics["name"] = potential_name
-                                print(f"✅ Extracted name via fallback: {potential_name}")
-                                break
+        
+        # Ensure demographics are properly updated in patient_data
+        patient_data["demographics"] = demographics
+        
+        # Debug: Print current demographics status
+        print(f"📊 Current demographics status:")
+        print(f"  Name: {demographics.get('name', 'NOT SET')}")
+        print(f"  Age: {demographics.get('age', 'NOT SET')}")
+        print(f"  Phone: {demographics.get('phone_number', 'NOT SET')}")
         
         # Check what's missing
         missing_info = []
-        if not demographics.get("name"):
+        if not demographics.get("name") or demographics.get("name") == "":
             missing_info.append("نام")
-        if not demographics.get("age"):
+        if not demographics.get("age") or demographics.get("age") == "":
             missing_info.append("عمر")
-        if not demographics.get("phone_number"):
+        if not demographics.get("phone_number") or demographics.get("phone_number") == "":
             missing_info.append("فون نمبر")
         
         if missing_info:
+            print(f"❌ Missing: {', '.join(missing_info)}")
             if not patient_data.get("has_greeted"):
                 patient_data["has_greeted"] = True
                 response_text = f"وعلیکم السلام! میں آپ کی گائناکالوجی کی مدد کرنے کے لئے ہوں۔ براہ کرم مجھے اپنا {missing_info[0]} بتائیں۔"
@@ -479,6 +543,7 @@ class IntelligentConversationEngine:
             }
         else:
             # Onboarding complete, move to problem collection
+            print(f"✅ Onboarding complete! Name: {demographics.get('name')}, Age: {demographics.get('age')}, Phone: {demographics.get('phone_number')}")
             patient_data["current_phase"] = "problem_collection"
             name = demographics.get("name", "صاحبہ")
             response_text = f"{name} صاحبہ، آپ کا آن بورڈنگ مکمل ہو گیا ہے۔ اب مجھے بتائیں کہ آپ کو کیا مسئلہ ہے؟"
