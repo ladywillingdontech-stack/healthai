@@ -1,4 +1,5 @@
 import json
+import re
 import openai
 from datetime import datetime
 from typing import Dict, Any, List, Optional
@@ -68,10 +69,23 @@ class IntelligentConversationEngine:
             return result
             
         except Exception as e:
-            print(f"Error in conversation engine: {e}")
+            import traceback
+            error_trace = traceback.format_exc()
+            print(f"❌ Error in conversation engine: {e}")
+            print(f"❌ Full traceback:\n{error_trace}")
+            
+            # Ensure patient_data exists for return
+            if 'patient_data' not in locals() or patient_data is None:
+                try:
+                    patient_data = await self.firestore_service.get_patient(patient_id)
+                    if not patient_data:
+                        patient_data = self._initialize_patient_data(patient_id)
+                except:
+                    patient_data = self._initialize_patient_data(patient_id)
+            
             return {
-                "response_text": "معذرت، میں آپ کی بات سمجھ نہیں سکا۔ براہ کرم دوبارہ کوشش کریں۔",
-                "next_phase": "general_response",
+                "response_text": f"معذرت، میں آپ کی بات سمجھ نہیں سکا۔ براہ کرم دوبارہ کوشش کریں۔\n\n(Technical: {str(e)})",
+                "next_phase": patient_data.get("current_phase", "onboarding"),
                 "patient_data": patient_data,
                 "action": "continue_conversation"
             }
@@ -360,43 +374,86 @@ class IntelligentConversationEngine:
             return await self._handle_general_response(patient_text, patient_data)
     
     async def _handle_onboarding_phase(self, patient_text: str, patient_data: Dict[str, Any]) -> Dict[str, Any]:
-        """Handle onboarding phase - collect name, age, phone using AI extraction"""
+        """Handle onboarding phase - collect name, age, phone using AI extraction with fallback"""
         
         demographics = patient_data.get("demographics", {})
         
-        # Extract information from response
-        extraction_prompt = f"""
-        Extract basic demographics from this response: "{patient_text}"
+        # First, try simple pattern matching as fallback
+        patient_text_lower = patient_text.lower().strip()
         
-        Extract:
-        - Name (if mentioned)
-        - Age (if mentioned)
-        - Phone number (if mentioned)
+        # Simple name extraction patterns
+        name_patterns = [
+            r"mera naam ([\w\s]+) hai",
+            r"mara naam ([\w\s]+) hai", 
+            r"naam ([\w\s]+) hai",
+            r"name is ([\w\s]+)",
+            r"my name is ([\w\s]+)"
+        ]
         
-        Return JSON: {{"name": "", "age": "", "phone_number": ""}}
-        """
+        extracted_name = None
+        for pattern in name_patterns:
+            match = re.search(pattern, patient_text_lower, re.IGNORECASE)
+            if match:
+                extracted_name = match.group(1).strip()
+                break
         
-        try:
-            response = openai.chat.completions.create(
-                model="gpt-4",
-                messages=[{"role": "user", "content": extraction_prompt}],
-                temperature=0.1
-            )
+        # If simple pattern matched, use it
+        if extracted_name and not demographics.get("name"):
+            demographics["name"] = extracted_name
+            print(f"✅ Extracted name via pattern: {extracted_name}")
+        
+        # Try AI extraction if OpenAI is available and name not found
+        if not demographics.get("name") and settings.openai_api_key and len(settings.openai_api_key) > 10:
+            extraction_prompt = f"""
+            Extract basic demographics from this response: "{patient_text}"
             
-            response_text = response.choices[0].message.content.strip()
-            if "{" in response_text:
-                start_idx = response_text.find("{")
-                end_idx = response_text.rfind("}") + 1
-                extracted = json.loads(response_text[start_idx:end_idx])
+            Extract:
+            - Name (if mentioned) - look for words like "naam", "name", "mera naam", "my name"
+            - Age (if mentioned) - look for numbers with "umar", "age", "saal", "years"
+            - Phone number (if mentioned) - look for digits in phone format
+            
+            Return JSON: {{"name": "", "age": "", "phone_number": ""}}
+            
+            Examples:
+            - "mera naam sadia hai" → {{"name": "sadia"}}
+            - "mera naam Fatima hai" → {{"name": "Fatima"}}
+            - "naam Zainab hai" → {{"name": "Zainab"}}
+            """
+            
+            try:
+                response = openai.chat.completions.create(
+                    model="gpt-4",
+                    messages=[{"role": "user", "content": extraction_prompt}],
+                    temperature=0.1
+                )
                 
-                if extracted.get("name") and not demographics.get("name"):
-                    demographics["name"] = extracted["name"]
-                if extracted.get("age") and not demographics.get("age"):
-                    demographics["age"] = extracted["age"]
-                if extracted.get("phone_number") and not demographics.get("phone_number"):
-                    demographics["phone_number"] = extracted["phone_number"]
-        except:
-            pass
+                response_text = response.choices[0].message.content.strip()
+                if "{" in response_text:
+                    start_idx = response_text.find("{")
+                    end_idx = response_text.rfind("}") + 1
+                    extracted = json.loads(response_text[start_idx:end_idx])
+                    
+                    if extracted.get("name") and not demographics.get("name"):
+                        demographics["name"] = extracted["name"]
+                        print(f"✅ Extracted name via AI: {extracted['name']}")
+                    if extracted.get("age") and not demographics.get("age"):
+                        demographics["age"] = extracted["age"]
+                    if extracted.get("phone_number") and not demographics.get("phone_number"):
+                        demographics["phone_number"] = extracted["phone_number"]
+            except Exception as e:
+                print(f"⚠️ AI extraction failed: {e}")
+                # If AI fails and pattern didn't match, try extracting name from common phrases
+                if not demographics.get("name"):
+                    # Last resort: try to extract any word after "naam" or "name"
+                    words = patient_text.split()
+                    for i, word in enumerate(words):
+                        if word.lower() in ["naam", "name"] and i + 1 < len(words):
+                            # Next word might be the name
+                            potential_name = words[i + 1].strip().rstrip(".,!?")
+                            if potential_name and len(potential_name) > 2:
+                                demographics["name"] = potential_name
+                                print(f"✅ Extracted name via fallback: {potential_name}")
+                                break
         
         # Check what's missing
         missing_info = []
