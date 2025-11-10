@@ -35,6 +35,17 @@ class IntelligentConversationEngine:
             current_phase = patient_data.get("current_phase", "onboarding")
             current_question_index = patient_data.get("current_question_index", 0)
             
+            # Ensure current_question_index is an integer (Firestore may store as string)
+            try:
+                if isinstance(current_question_index, str):
+                    current_question_index = int(current_question_index) if current_question_index.isdigit() else 0
+                elif current_question_index is None:
+                    current_question_index = 0
+                else:
+                    current_question_index = int(current_question_index)
+            except (ValueError, TypeError):
+                current_question_index = 0
+            
             # Extract information if in questionnaire phase and patient has responded
             if current_phase == "questionnaire" and current_question_index < len(self.questions) and patient_text.strip():
                 current_question = self.questions[current_question_index]
@@ -637,6 +648,15 @@ class IntelligentConversationEngine:
                 
                 pregnancy_month = extracted.get("pregnancy_month", 0)
                 
+                # Ensure pregnancy_month is an integer
+                try:
+                    if isinstance(pregnancy_month, str):
+                        pregnancy_month = int(pregnancy_month) if pregnancy_month.isdigit() else 0
+                    else:
+                        pregnancy_month = int(pregnancy_month) if pregnancy_month else 0
+                except (ValueError, TypeError):
+                    pregnancy_month = 0
+                
                 # Store pregnancy month
                 current_pregnancy = patient_data.get("current_pregnancy", {})
                 current_pregnancy["pregnancy_month"] = pregnancy_month
@@ -697,7 +717,13 @@ class IntelligentConversationEngine:
                 extracted = json.loads(response_text[start_idx:end_idx])
                 
                 demographics = patient_data.get("demographics", {})
-                demographics["number_of_children"] = extracted.get("number_of_children", 0)
+                number_of_children = extracted.get("number_of_children", 0)
+                # Ensure it's an integer
+                try:
+                    number_of_children = int(number_of_children) if number_of_children else 0
+                except (ValueError, TypeError):
+                    number_of_children = 0
+                demographics["number_of_children"] = number_of_children
                 demographics["first_pregnancy"] = extracted.get("first_pregnancy", False)
                 
                 # Store twins info if detected
@@ -788,6 +814,17 @@ class IntelligentConversationEngine:
         trimester = current_pregnancy.get("trimester", "unknown")
         pregnancy_month = current_pregnancy.get("pregnancy_month", 0)
         
+        # Convert to int if it's a string (Firestore may store as string)
+        try:
+            if isinstance(pregnancy_month, str):
+                pregnancy_month = int(pregnancy_month) if pregnancy_month.isdigit() else 0
+            elif pregnancy_month is None:
+                pregnancy_month = 0
+            else:
+                pregnancy_month = int(pregnancy_month)
+        except (ValueError, TypeError):
+            pregnancy_month = 0
+        
         # If trimester not set but month is available, calculate it
         if trimester == "unknown" and pregnancy_month > 0:
             if 1 <= pregnancy_month <= 3:
@@ -804,6 +841,18 @@ class IntelligentConversationEngine:
         
         demographics = patient_data.get("demographics", {})
         number_of_children = demographics.get("number_of_children", 0)
+        
+        # Ensure number_of_children is an integer (Firestore may store as string)
+        try:
+            if isinstance(number_of_children, str):
+                number_of_children = int(number_of_children) if number_of_children.isdigit() else 0
+            elif number_of_children is None:
+                number_of_children = 0
+            else:
+                number_of_children = int(number_of_children)
+        except (ValueError, TypeError):
+            number_of_children = 0
+        
         first_pregnancy = demographics.get("first_pregnancy", False)
         
         # If first pregnancy OR no children, skip obstetric history questions (31-41, which are indices 30-40)
@@ -819,6 +868,17 @@ class IntelligentConversationEngine:
         for i in range(start_index, len(self.questions)):
             question = self.questions[i]
             question_id = question.get("id", 0)
+            
+            # Ensure question_id is an integer
+            try:
+                if isinstance(question_id, str):
+                    question_id = int(question_id) if question_id.isdigit() else 0
+                elif question_id is None:
+                    question_id = 0
+                else:
+                    question_id = int(question_id)
+            except (ValueError, TypeError):
+                question_id = 0
             
             # Skip questions 31-41 (obstetric history for single child) if applicable
             if skip_obstetric_history and 31 <= question_id <= 41:
