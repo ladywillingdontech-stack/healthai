@@ -51,20 +51,28 @@ class IntelligentConversationEngine:
                 current_question = self.questions[current_question_index]
                 await self._extract_information_intelligently(patient_text, patient_data, current_question)
                 
-                # Special handling for question 8 (children info) - extract first_pregnancy and number_of_children
-                if current_question_index == 7:  # Question 8 is index 7 (0-based)
-                    await self._extract_children_info(patient_text, patient_data)
+                # Special handling for question 5 (pregnancy number) - extract pregnancy number and determine if first pregnancy
+                if current_question_index == 4:  # Question 5 is index 4 (0-based)
+                    await self._extract_pregnancy_number(patient_text, patient_data)
                 
-                # Special handling for question 13 (pregnancy month) - extract month and determine trimester
-                if current_question_index == 12:  # Question 13 is index 12 (0-based)
+                # Special handling for question 6 (miscarriages/deaths) - only asked if 2nd+ pregnancy
+                # This is handled by _get_next_valid_question_index condition
+                
+                # Special handling for question 7 (LMP) - check if date was remembered
+                if current_question_index == 6:  # Question 7 is index 6 (0-based)
+                    await self._extract_lmp_info(patient_text, patient_data)
+                
+                # Special handling for question 9 (pregnancy month) - extract month and determine trimester
+                if current_question_index == 8:  # Question 9 is index 8 (0-based)
                     await self._extract_pregnancy_month(patient_text, patient_data)
                 
-                # Special handling for question 24 (anatomy scan) - check for twins
-                if current_question_index == 23:  # Question 24 is index 23 (0-based)
+                # Special handling for question 16 (anatomy scan) - check for twins
+                current_question_id = current_question.get("id", 0)
+                if current_question_id == 16:  # Question 16 (anatomy scan)
                     await self._check_for_twins(patient_text, patient_data)
                 
-                # Special handling for question 29 (recent scan) - check for twins
-                if current_question_index == 28:  # Question 29 is index 28 (0-based)
+                # Special handling for question 24 (recent scan) - check for twins
+                if current_question_id == 24:  # Question 24 (recent scan)
                     await self._check_for_twins(patient_text, patient_data)
                 
                 # Get next valid question index (skip obstetric history if first pregnancy, skip question 48 if no twins, skip 23-30 if first trimester)
@@ -102,92 +110,88 @@ class IntelligentConversationEngine:
             }
     
     def _initialize_questions(self) -> List[Dict[str, Any]]:
-        """Initialize all structured questions"""
+        """Initialize all structured questions based on updated document"""
         return [
-            # Patient Profile (1-13)
+            # Patient Profile (Questions 1-8 from document)
             {"id": 1, "text": "Aapka pura naam kya hai?", "field": "demographics.name", "category": "patient_profile"},
-            {"id": 2, "text": "Aapka shanakhti card ka number kya hai?", "field": "demographics.id_card_number", "category": "patient_profile"},
-            {"id": 3, "text": "Aap kis jamat tak parhi hain?", "field": "demographics.education", "category": "patient_profile"},
-            {"id": 4, "text": "Aap kis ilaqe mein rehti hain?", "field": "demographics.area", "category": "patient_profile"},
-            {"id": 5, "text": "Aap kya kaam karti hain?", "field": "demographics.occupation", "category": "patient_profile"},
-            {"id": 6, "text": "Aapki umar kitni hai?", "field": "demographics.age", "category": "patient_profile"},
-            {"id": 7, "text": "Shaadi ko kitna arsa ho gaya hai? Khandan mein hoyi hai ya baahir? Kya apka shohar apka cousin hai?", "field": "demographics.marriage_info", "category": "patient_profile"},
-            {"id": 8, "text": "Aapne kitne bachay hain? Apka pehla huml hai?", "field": "demographics.children_info", "category": "patient_profile"},
-            {"id": 9, "text": "Khudanakhasta koi huml zaya tou nahi hoa?", "field": "demographics.miscarriages", "category": "patient_profile"},
-            {"id": 10, "text": "Koi bacha fout tou nahi hoa?", "field": "demographics.child_deaths", "category": "patient_profile"},
-            {"id": 11, "text": "Aapko mahwari ki aakhri date kab ayi thi? Aakhri tareekh yaad hai?", "field": "demographics.last_menstrual_period", "category": "patient_profile"},
-            {"id": 12, "text": "Kiya mahwari apko waqt per aati hai?", "field": "demographics.regular_periods", "category": "patient_profile"},
-            {"id": 13, "text": "Aapke hisaab se huml ka konsa mahina chal raha?", "field": "current_pregnancy.pregnancy_month", "category": "patient_profile"},
+            {"id": 2, "text": "Aap kya kaam karti hain?", "field": "demographics.occupation", "category": "patient_profile"},
+            {"id": 3, "text": "Aapki umar kitni hai?", "field": "demographics.age", "category": "patient_profile"},
+            {"id": 4, "text": "Shaadi ko kitna arsa ho gaya hai? Khandan mein hoyi hai ya baahir?", "field": "demographics.marriage_info", "category": "patient_profile"},
+            {"id": 5, "text": "Apka kitnwa hamal hai?", "field": "demographics.pregnancy_number", "category": "patient_profile"},
+            {"id": 6, "text": "Koi hamal zaya tu nhi hua ya koi bacha fout tu nahi hua?", "field": "demographics.miscarriages_deaths", "category": "patient_profile", "condition": "if_2nd_or_more_pregnancy"},
+            {"id": 7, "text": "Aapko mahwari kab ayi thi?", "field": "demographics.last_menstrual_period", "category": "patient_profile"},
+            {"id": 8, "text": "Kiya mahwari apko waqt per aati hai?", "field": "demographics.regular_periods", "category": "patient_profile", "condition": "if_lmp_not_remembered"},
+            {"id": 9, "text": "Aapke hisaab se huml ka konsa mahina chal raha?", "field": "current_pregnancy.pregnancy_month", "category": "patient_profile"},
             
-            # Presenting Complaint (14)
-            {"id": 14, "text": "Aap kis maslay k sath ayi hain? Thora tafseelan btayen mujhy?", "field": "problem_description", "category": "presenting_complaint"},
+            # Presenting Complaint - Main question (handled in problem_collection phase)
+            # Follow-up questions are dynamic based on complaint type
             
-            # Current Pregnancy (15-22)
-            {"id": 15, "text": "Huml khudi hoa tha ya phir dawai khani pari?", "field": "current_pregnancy.conception_method", "category": "current_pregnancy"},
-            {"id": 16, "text": "Kiya is huml mein aapki marzi shamil thi?", "field": "current_pregnancy.intended", "category": "current_pregnancy"},
-            {"id": 17, "text": "Aapko huml kese pata chala hai?", "field": "current_pregnancy.discovery_method", "category": "current_pregnancy"},
-            {"id": 18, "text": "Pishaab ka test kiya tha?", "field": "current_pregnancy.urine_test", "category": "current_pregnancy"},
-            {"id": 19, "text": "Shuru ke dino mein ultrasound karaya tha?", "field": "current_pregnancy.early_ultrasound", "category": "current_pregnancy"},
-            {"id": 20, "text": "Aapne folic acid li huml se pehle aur shuru ke dino mein?", "field": "current_pregnancy.folic_acid", "category": "current_pregnancy"},
-            {"id": 21, "text": "Aapke koi khoon pishaab ke koi test hoye? If yes, then konse hoye?", "field": "current_pregnancy.tests_info", "category": "current_pregnancy"},
-            {"id": 22, "text": "Hamal ke shuru ke dino mein kiya apko in main se koi alamaat mehsoos hui hain? dard ya bukhaar ya chakkar aye hoon ya khoon para ho ya ulti ayi ho, dil kharab hoa ho?", "field": "current_pregnancy.early_symptoms", "category": "current_pregnancy"},
+            # Current Pregnancy - First Trimester (4 questions)
+            {"id": 10, "text": "Hamal khudi hua tha ya dawai khani pari?", "field": "current_pregnancy.conception_method", "category": "first_trimester"},
+            {"id": 11, "text": "Aapko hamal ka kesay pata chala?", "field": "current_pregnancy.discovery_method", "category": "first_trimester"},
+            {"id": 12, "text": "Shuru ke dino mein ultrasound karaya tha?", "field": "current_pregnancy.early_ultrasound", "category": "first_trimester"},
+            {"id": 13, "text": "Aapne hamal se pehle aur shuru ke dino mein folic acid li h?", "field": "current_pregnancy.folic_acid", "category": "first_trimester"},
+            {"id": 14, "text": "Kia apko shoro k dino men ulti, bukhar ya khoon prnay ki shikayat hui ho? If she said yes to any of it ask k ab kesi h? Agr ab theek h tu move to next section", "field": "current_pregnancy.early_symptoms", "category": "first_trimester"},
             
-            # Second and Third Trimesters (23-30)
-            {"id": 23, "text": "Apko bache ki harkat hona kab mahsoos hoyi? Theek hai bache ki harkat?", "field": "current_pregnancy.fetal_movement", "category": "second_third_trimester"},
-            {"id": 24, "text": "Apka panchwain mahinay main bachay ki banwat wala ultrasound(barra ultrasound) hua tha?", "field": "current_pregnancy.anatomy_scan", "category": "second_third_trimester"},
-            {"id": 25, "text": "Kiya ap nay baa-qaidgi se checkup kerwaya hai? Aur khoon pishaab ke test hoye hain? If yes, Hb kitni hai? If no, kya aapko thakawat, saans ka phoolna, ya dil ki dharkan tez hone ka masla hota hai?", "field": "current_pregnancy.checkup_info", "category": "second_third_trimester"},
-            {"id": 26, "text": "Aapke sugar aur blood pressure ke test hoye thay? Koi masla tou nahi aya? If yes, aapko is masle ke liye koi dawai khaani parhti hai?", "field": "current_pregnancy.sugar_bp_info", "category": "second_third_trimester"},
-            {"id": 27, "text": "Aap taqat ki dawain le rahi hain?", "field": "current_pregnancy.supplements", "category": "second_third_trimester"},
-            {"id": 28, "text": "Kiya apko hamal k doran in main se koi alamaat mehsoos hui hain: nallon men dard, kachi dardain, khoon ya paani ka parna, ya bachay ki harkat men kami mehsoos hui hai?", "field": "current_pregnancy.complications", "category": "second_third_trimester"},
-            {"id": 29, "text": "If in the third trimester, abhi ka koi recent scan hai apke paas? Koi masla tou nahi aya?", "field": "current_pregnancy.recent_scan", "category": "second_third_trimester"},
-            {"id": 30, "text": "Pregnancy ke baare mein koi aur maloomat jo aap share karna chahti hain?", "field": "current_pregnancy.additional_info", "category": "second_third_trimester"},
+            # Current Pregnancy - Second and Third Trimesters (8 questions)
+            {"id": 15, "text": "Apko bache ki harkat hona kab mahsoos hui aur theek ho ri h?", "field": "current_pregnancy.fetal_movement", "category": "second_third_trimester"},
+            {"id": 16, "text": "Apka panchwain mahinay main bachay ki banwat wala ultrasound hua tha?", "field": "current_pregnancy.anatomy_scan", "category": "second_third_trimester"},
+            {"id": 17, "text": "Kiya ap baa-qaidgi se checkup kerwati hain?", "field": "current_pregnancy.regular_checkup", "category": "second_third_trimester"},
+            {"id": 18, "text": "khoon pishaap ke test hoye hain?", "field": "current_pregnancy.blood_urine_tests", "category": "second_third_trimester"},
+            {"id": 19, "text": "If yes, Hb kitni hai? If no, kya aapko thakawat, saans ka phoolna, ya dil ki dharkan tez hone ka masla hota hai?", "field": "current_pregnancy.hb_level_symptoms", "category": "second_third_trimester", "condition": "if_blood_test_yes_or_no"},
+            {"id": 20, "text": "Aapke sugar aur blood pressure ke test hoye thay? Koi masla tou nahi aya?", "field": "current_pregnancy.sugar_bp_tests", "category": "second_third_trimester"},
+            {"id": 21, "text": "If yes, aapko is masle ke liye koi dawai khaani parhti hai?", "field": "current_pregnancy.sugar_bp_medication", "category": "second_third_trimester", "condition": "if_sugar_bp_yes"},
+            {"id": 22, "text": "Aap taqat ki dawain le rahi hain?", "field": "current_pregnancy.supplements", "category": "second_third_trimester"},
+            {"id": 23, "text": "Kabhi khoon ya pani prnay ki shikayat hui ho", "field": "current_pregnancy.bleeding_water_leakage", "category": "second_third_trimester"},
+            {"id": 24, "text": "If in the third trimester, abhi ka koi recent scan hai apke paas? If she said yes tu ask koi masla tu nahi hai.", "field": "current_pregnancy.recent_scan", "category": "second_third_trimester", "condition": "if_third_trimester"},
             
-            # Obstetric History - For one child (31-41)
-            {"id": 31, "text": "Bache ki umer kiya hai?", "field": "obstetric_history.single_child.age", "category": "obstetric_history"},
-            {"id": 32, "text": "Larka hai ya larki?", "field": "obstetric_history.single_child.gender", "category": "obstetric_history"},
-            {"id": 33, "text": "Poore dino per paida hoa tha?", "field": "obstetric_history.single_child.full_term", "category": "obstetric_history"},
-            {"id": 34, "text": "Normal hua tha? Operation se hua tha?", "field": "obstetric_history.single_child.delivery_method", "category": "obstetric_history"},
-            {"id": 35, "text": "Kahan per paida hua tha? Delivery kahan pe hoyi thi?", "field": "obstetric_history.single_child.delivery_location", "category": "obstetric_history"},
-            {"id": 36, "text": "If normal: Dardien khudi lagi thi ya lagwani pari thi? Kitna waqt laga bache ki padaish mein?", "field": "obstetric_history.single_child.normal_delivery_details", "category": "obstetric_history"},
-            {"id": 37, "text": "If operation: Kis wajah se hua tha?", "field": "obstetric_history.single_child.operation_reason", "category": "obstetric_history"},
-            {"id": 38, "text": "Padaish ke waqt bache ka wazan kitna tha?", "field": "obstetric_history.single_child.birth_weight", "category": "obstetric_history"},
-            {"id": 39, "text": "Delivery ke baad koi masla tou nahi hoa? Padaish ke baad apko ya bache ko masla tou nahi hoa?", "field": "obstetric_history.single_child.post_delivery_complications", "category": "obstetric_history"},
-            {"id": 40, "text": "Bacha ab theek hai? School jata hai?", "field": "obstetric_history.single_child.current_status", "category": "obstetric_history"},
-            {"id": 41, "text": "Kya is huml mein sugar, blood pressure ya khoon ka masla hoa? Ya koi aur masla jo aap batana chahein?", "field": "obstetric_history.single_child.pregnancy_complications", "category": "obstetric_history"},
+            # Obstetric History - For one child (10 questions)
+            {"id": 25, "text": "Bache ki umer kiya hai?", "field": "obstetric_history.single_child.age", "category": "obstetric_history_one_child"},
+            {"id": 26, "text": "Larka hai ya larki?", "field": "obstetric_history.single_child.gender", "category": "obstetric_history_one_child"},
+            {"id": 27, "text": "Poore dino per paida hoa tha? If she said nahi then ask kitnway mahinay men padish hui", "field": "obstetric_history.single_child.full_term", "category": "obstetric_history_one_child"},
+            {"id": 28, "text": "Operation ya normal", "field": "obstetric_history.single_child.delivery_method", "category": "obstetric_history_one_child"},
+            {"id": 29, "text": "If normal: Dardien khudi lagi thi ya lagwani pari thi? Kitna waqt laga bache ki padaish mein?", "field": "obstetric_history.single_child.normal_delivery_details", "category": "obstetric_history_one_child", "condition": "if_normal_delivery"},
+            {"id": 30, "text": "If operation: Kis wajah se hua tha?", "field": "obstetric_history.single_child.operation_reason", "category": "obstetric_history_one_child", "condition": "if_operation"},
+            {"id": 31, "text": "Kahan pr paidaish hui", "field": "obstetric_history.single_child.delivery_location", "category": "obstetric_history_one_child"},
+            {"id": 32, "text": "Padaish ke baad apko ya bache ko masla tou nahi hoa?", "field": "obstetric_history.single_child.post_delivery_complications", "category": "obstetric_history_one_child"},
+            {"id": 33, "text": "Bacha ab theek hai? School jata hai?", "field": "obstetric_history.single_child.current_status", "category": "obstetric_history_one_child"},
+            {"id": 34, "text": "Kya is huml mein sugar, blood pressure ya khoon ka masla hoa? Ya koi aur masla jo aap batana chahein?", "field": "obstetric_history.single_child.pregnancy_complications", "category": "obstetric_history_one_child"},
             
-            # Obstetric History - For multiple children (42-52) - Note: This overlaps with single child questions
-            # We'll handle this dynamically based on number of children
+            # Obstetric History - For 2 or more children (10 questions)
+            {"id": 35, "text": "Bare bache se shoro ho kr sab bachon ki umar r jins btayen.", "field": "obstetric_history.multiple_children.children_info", "category": "obstetric_history_multiple_children"},
+            {"id": 36, "text": "Kya aapke tamam bachay poore dino pe paida huay thay?", "field": "obstetric_history.multiple_children.all_full_term", "category": "obstetric_history_multiple_children"},
+            {"id": 37, "text": "Kya sab bachay normal tareeqe se paida huay thay ya kisi ka operation (C-section) hoa tha?", "field": "obstetric_history.multiple_children.delivery_methods", "category": "obstetric_history_multiple_children"},
+            {"id": 38, "text": "Aapke bachay kahan paida huay thay?", "field": "obstetric_history.multiple_children.delivery_locations", "category": "obstetric_history_multiple_children"},
+            {"id": 39, "text": "For normal deliveries: Jin bachon ki normal delivery hui thi, kya un mein dardien khud lag gayi thi ya lagwani pari thi?", "field": "obstetric_history.multiple_children.normal_delivery_details", "category": "obstetric_history_multiple_children", "condition": "if_any_normal_delivery"},
+            {"id": 40, "text": "For Caesarean/Operation: Operation ki wajah kya thi?", "field": "obstetric_history.multiple_children.operation_reasons", "category": "obstetric_history_multiple_children", "condition": "if_any_operation"},
+            {"id": 41, "text": "Delivery ke baad kisi bache ya aapko koi masla tou nahi hua tha?", "field": "obstetric_history.multiple_children.post_delivery_complications", "category": "obstetric_history_multiple_children"},
+            {"id": 42, "text": "Kya aapke tamam bachay ab theek hain? Kya sab school jatay hain?", "field": "obstetric_history.multiple_children.current_status", "category": "obstetric_history_multiple_children"},
+            {"id": 43, "text": "Kya kisi bhi huml ke dauran aapko sugar, blood pressure, ya khoon ka masla hua tha? Ya koi aur masla jo aap batana chahein?", "field": "obstetric_history.multiple_children.pregnancy_complications", "category": "obstetric_history_multiple_children"},
             
-            # Gynecological History (42-43)
-            {"id": 42, "text": "Ap khandaani mansooba bandi k liye koi tareeq istemal kerti theen is se pehlay? If yes, konsa?", "field": "gynecological_history.contraception", "category": "gynecological_history"},
-            {"id": 43, "text": "Kiya ap nay kabhi bachaydaani k munh ka muaaiana(pap smear) kerwaya hain?", "field": "gynecological_history.pap_smear", "category": "gynecological_history"},
+            # Gynecological History (2 questions)
+            {"id": 44, "text": "Ap khandaani mansooba bandi k liye koi tareeq istemal kerti theen is se pehlay? If yes, konsa?", "field": "gynecological_history.contraception", "category": "gynecological_history"},
+            {"id": 45, "text": "Kiya ap nay kabhi bachaydaani k munh ka muaaiana(pap smear) kerwaya hain?", "field": "gynecological_history.pap_smear", "category": "gynecological_history"},
             
-            # Past Medical History (44-45)
-            {"id": 44, "text": "Kiya ap kisi maslay k liye koi dawayi khaa rahi hain?", "field": "past_medical_history.current_medications", "category": "past_medical_history"},
-            {"id": 45, "text": "Kabhi sugar/Blood pressure/ dama/TB/Yarqan/dil ya gurdon ka masla tou nahin hua?", "field": "past_medical_history.previous_conditions", "category": "past_medical_history"},
+            # Past Medical History (2 questions)
+            {"id": 46, "text": "Kiya ap kisi maslay k liye koi dawayi khaa rahi hain?", "field": "past_medical_history.current_medications", "category": "past_medical_history"},
+            {"id": 47, "text": "Kabhi sugar/Blood pressure/ dama/TB/Yarqan/dil ya gurdon ka masla tou nahin hua?", "field": "past_medical_history.previous_conditions", "category": "past_medical_history"},
             
-            # Surgical History (46)
-            {"id": 46, "text": "Apka kabhi kisi wajah se koi operation tou nae hua? Agar hua hai tou tafseelan bataiye.", "field": "surgical_history.operations", "category": "surgical_history"},
+            # Surgical History (1 question)
+            {"id": 48, "text": "Apka kabhi kisi wajah se koi operation tou nae hua? If she said hua h tu ask konsa", "field": "surgical_history.operations", "category": "surgical_history"},
             
-            # Family History (47-48)
-            {"id": 47, "text": "Kiya apkay ya apkay shohar k khandan men kisi ko sugar, blood pressure, dil, TB, ya bachon men banawti naqais tou nahin hain?", "field": "family_history.medical_conditions", "category": "family_history"},
-            {"id": 48, "text": "If twins then ask: Kya apkay khandaan men pehlay koi jurwan bachay hoye hain?", "field": "family_history.twins_history", "category": "family_history"},
+            # Family History (2 questions)
+            {"id": 49, "text": "Kiya apkay ya apkay shohar k khandan men kisi ko sugar, blood pressure, dil, TB, ya bachon men banawti naqais tou nahin hain?", "field": "family_history.medical_conditions", "category": "family_history"},
+            {"id": 50, "text": "If twins then ask: Kya apkay khandaan men pehlay koi jurwan bachay hoye hain?", "field": "family_history.twins_history", "category": "family_history", "condition": "if_twins"},
             
-            # Personal History (49-56)
-            {"id": 49, "text": "Aapko kisi cheez ya koi dawai se allergy tou nahi hai? If yes: konsi allergy hai?", "field": "personal_history.allergies", "category": "personal_history"},
-            {"id": 50, "text": "Aapka blood group kya hai?", "field": "personal_history.blood_group", "category": "personal_history"},
-            {"id": 51, "text": "Apka wazn kitna hai?", "field": "personal_history.weight", "category": "personal_history"},
+            # Personal History (4 questions)
+            {"id": 51, "text": "Aapko kisi cheez ya koi dawai se allergy tou nahi hai? If yes: konsi allergy hai?", "field": "personal_history.allergies", "category": "personal_history"},
             {"id": 52, "text": "Maaf kijiye ga, kiya aap ya aap ka shohar cigarette noshi ya kisi qisam ka koi aur nasha karti hain?", "field": "personal_history.smoking_substance_use", "category": "personal_history"},
-            {"id": 53, "text": "Aap ke shohar ke saath taluqaat theek hain? Apkay sath ghar per koi gali galoch/ mar peet ya zabardasti tou nahin kerta?", "field": "personal_history.relationship_status", "category": "personal_history"},
-            {"id": 54, "text": "Aap ko neend theek aati hai? Agar nahi, kya wajah hai thora tafseelan batayein?", "field": "personal_history.sleep", "category": "personal_history"},
-            {"id": 55, "text": "Bhook theek lagti hai? Agar nahi, kya wajah hai thora tafseelan batayein?", "field": "personal_history.appetite", "category": "personal_history"},
-            {"id": 56, "text": "Apki ghiza kesi hai? Khaane mein phal, sabzian, gosht aur anday doodh ka istemaal karti hain?", "field": "personal_history.diet", "category": "personal_history"},
+            {"id": 53, "text": "Apkay sath ghar per koi gali galoch/ mar peet ya zabardasti tou nahin kerta?", "field": "personal_history.domestic_violence", "category": "personal_history"},
+            {"id": 54, "text": "Apki ghiza kesi hai? Khaane mein phal, sabzian, gosht aur anday doodh ka istemaal karti hain?", "field": "personal_history.diet", "category": "personal_history"},
             
-            # Socio-Economic History (57-60)
-            {"id": 57, "text": "Aapke ghar mein kitne afraad hain?", "field": "socio_economic.family_size", "category": "socio_economic"},
-            {"id": 58, "text": "Shohar kiya kaam kerta hai? Guzara theek se ho jata hai?", "field": "socio_economic.husband_occupation", "category": "socio_economic"},
-            {"id": 59, "text": "Ap susral k sath rehti hain ya alag rehti hain?", "field": "socio_economic.living_arrangement", "category": "socio_economic"},
-            {"id": 60, "text": "Iske ilawa aap kuch batana chahein gi? Aapke nazdeek zaroori ho?", "field": "additional_info", "category": "socio_economic"}
+            # Socio-Economic History (2 questions)
+            {"id": 55, "text": "Shohar kiya kaam kerta hai aur ghuzara theek se ho jata hai?", "field": "socio_economic.husband_occupation", "category": "socio_economic"},
+            {"id": 56, "text": "Iske ilawa aap kuch batana chahein gi?", "field": "additional_info", "category": "socio_economic"}
         ]
     
     def _initialize_patient_data(self, patient_id: str) -> Dict[str, Any]:
@@ -197,49 +201,65 @@ class IntelligentConversationEngine:
             "demographics": {
                 "name": "",
                 "id_card_number": "",
-                "education": "",
-                "area": "",
                 "occupation": "",
                 "age": "",
                 "phone_number": "",
                 "marriage_info": "",
                 "marriage_duration": "",
                 "consanguineous_marriage": False,
-                "husband_cousin": False,
-                "children_info": "",
+                "pregnancy_number": "",
                 "number_of_children": 0,
                 "first_pregnancy": False,
-                "miscarriages": "",
-                "child_deaths": "",
+                "miscarriages_deaths": "",
                 "last_menstrual_period": "",
                 "last_menstrual_period_remembered": False,
-                "regular_periods": False
+                "regular_periods": ""
             },
             "problem_description": "",
             "current_pregnancy": {
                 "pregnancy_month": "",
+                "trimester": "",
                 "conception_method": "",
-                "intended": False,
                 "discovery_method": "",
-                "urine_test": False,
                 "early_ultrasound": False,
                 "folic_acid": False,
-                "tests_info": "",
-                "test_types": "",
                 "early_symptoms": "",
                 "fetal_movement": "",
                 "anatomy_scan": False,
-                "checkup_info": "",
-                "hb_level": "",
-                "sugar_bp_info": "",
+                "regular_checkup": False,
+                "blood_urine_tests": "",
+                "hb_level_symptoms": "",
+                "sugar_bp_tests": "",
+                "sugar_bp_medication": "",
                 "supplements": False,
-                "complications": "",
+                "bleeding_water_leakage": "",
                 "recent_scan": "",
-                "additional_info": ""
+                "has_twins": False
             },
             "obstetric_history": {
-                "single_child": {},
-                "multiple_children": {}
+                "single_child": {
+                    "age": "",
+                    "gender": "",
+                    "full_term": "",
+                    "delivery_method": "",
+                    "normal_delivery_details": "",
+                    "operation_reason": "",
+                    "delivery_location": "",
+                    "post_delivery_complications": "",
+                    "current_status": "",
+                    "pregnancy_complications": ""
+                },
+                "multiple_children": {
+                    "children_info": "",
+                    "all_full_term": "",
+                    "delivery_methods": "",
+                    "delivery_locations": "",
+                    "normal_delivery_details": "",
+                    "operation_reasons": "",
+                    "post_delivery_complications": "",
+                    "current_status": "",
+                    "pregnancy_complications": ""
+                }
             },
             "gynecological_history": {
                 "contraception": "",
@@ -258,18 +278,12 @@ class IntelligentConversationEngine:
             },
             "personal_history": {
                 "allergies": "",
-                "blood_group": "",
-                "weight": "",
                 "smoking_substance_use": "",
-                "relationship_status": "",
-                "sleep": "",
-                "appetite": "",
+                "domestic_violence": "",
                 "diet": ""
             },
             "socio_economic": {
-                "family_size": "",
-                "husband_occupation": "",
-                "living_arrangement": ""
+                "husband_occupation": ""
             },
             "additional_info": "",
             "conversation_history": [],
@@ -385,12 +399,48 @@ class IntelligentConversationEngine:
             return await self._handle_general_response(patient_text, patient_data)
     
     async def _handle_onboarding_phase(self, patient_text: str, patient_data: Dict[str, Any]) -> Dict[str, Any]:
-        """Handle onboarding phase - collect name, age, phone using AI extraction with fallback"""
+        """Handle onboarding phase - collect CNIC first, then name, age, phone"""
         
         demographics = patient_data.get("demographics", {})
         patient_text_lower = patient_text.lower().strip()
         
-        # Pattern matching for all three fields
+        # Step 1: Collect CNIC first (as per document)
+        if not demographics.get("id_card_number"):
+            # Extract CNIC number (13 digits, may have dashes)
+            cnic_patterns = [
+                r"cnic[:\s]*([\d\-]{13,19})",
+                r"shanakhti[:\s]*([\d\-]{13,19})",
+                r"([\d]{5}[\-]?[\d]{7}[\-]?[\d]{1})",  # Standard CNIC format
+                r"([\d]{13})"  # Just 13 digits
+            ]
+            
+            extracted_cnic = None
+            for pattern in cnic_patterns:
+                match = re.search(pattern, patient_text_lower, re.IGNORECASE)
+                if match:
+                    extracted_cnic = re.sub(r'[\s\-]', '', match.group(1).strip())
+                    if len(extracted_cnic) == 13:  # Valid CNIC length
+                        demographics["id_card_number"] = extracted_cnic
+                        print(f"✅ Extracted CNIC: {extracted_cnic}")
+                        break
+            
+            if not demographics.get("id_card_number"):
+                # Ask for CNIC
+                if not patient_data.get("has_greeted"):
+                    patient_data["has_greeted"] = True
+                    response_text = "وعلیکم السلام! میں آپ کی گائناکالوجی کی مدد کرنے کے لئے ہوں۔ براہ کرم اپنا یا اپنے شوہر کا CNIC نمبر لکھیں تاکہ ہم آپ سے رابطہ کر سکیں۔"
+                else:
+                    response_text = "براہ کرم اپنا یا اپنے شوہر کا CNIC نمبر لکھیں۔"
+                
+                patient_data["demographics"] = demographics
+                return {
+                    "response_text": response_text,
+                    "next_phase": "onboarding",
+                    "patient_data": patient_data,
+                    "action": "continue_conversation"
+                }
+        
+        # Step 2: Collect name, age, phone (after CNIC is collected)
         # Name patterns
         name_patterns = [
             r"mera naam ([\w\s]+) hai",
@@ -525,6 +575,7 @@ class IntelligentConversationEngine:
         
         # Debug: Print current demographics status
         print(f"📊 Current demographics status:")
+        print(f"  CNIC: {demographics.get('id_card_number', 'NOT SET')}")
         print(f"  Name: {demographics.get('name', 'NOT SET')}")
         print(f"  Age: {demographics.get('age', 'NOT SET')}")
         print(f"  Phone: {demographics.get('phone_number', 'NOT SET')}")
@@ -554,7 +605,7 @@ class IntelligentConversationEngine:
             }
         else:
             # Onboarding complete, move to problem collection
-            print(f"✅ Onboarding complete! Name: {demographics.get('name')}, Age: {demographics.get('age')}, Phone: {demographics.get('phone_number')}")
+            print(f"✅ Onboarding complete! CNIC: {demographics.get('id_card_number')}, Name: {demographics.get('name')}, Age: {demographics.get('age')}, Phone: {demographics.get('phone_number')}")
             patient_data["current_phase"] = "problem_collection"
             name = demographics.get("name", "صاحبہ")
             response_text = f"{name} صاحبہ، آپ کا آن بورڈنگ مکمل ہو گیا ہے۔ اب مجھے بتائیں کہ آپ کو کیا مسئلہ ہے؟"
@@ -588,21 +639,21 @@ class IntelligentConversationEngine:
                 else:
                     response_text = "شکریہ۔ اب میں آپ سے کچھ ضروری سوالات پوچھوں گا۔"
                 
-                return {
-                    "response_text": response_text,
+            return {
+                "response_text": response_text,
                     "next_phase": "questionnaire",
-                    "patient_data": patient_data,
-                    "action": "continue_conversation"
-                }
-            else:
+                "patient_data": patient_data,
+                "action": "continue_conversation"
+            }
+        else:
                 # Ask for problem if not collected yet
                 response_text = "براہ کرم مجھے بتائیں کہ آپ کو کیا مسئلہ ہے؟ آپ کی کیا تکلیف ہے؟"
-                return {
-                    "response_text": response_text,
+            return {
+                "response_text": response_text,
                     "next_phase": "problem_collection",
-                    "patient_data": patient_data,
-                    "action": "continue_conversation"
-                }
+                "patient_data": patient_data,
+                "action": "continue_conversation"
+            }
         else:
             # Problem already collected, move to questionnaire
             patient_data["current_phase"] = "questionnaire"
@@ -676,6 +727,69 @@ class IntelligentConversationEngine:
                 print(f"✅ Extracted pregnancy month: {pregnancy_month}, trimester: {trimester}")
         except Exception as e:
             print(f"Error extracting pregnancy month: {e}")
+    
+    async def _extract_pregnancy_number(self, patient_text: str, patient_data: Dict[str, Any]):
+        """Extract pregnancy number from question 5 response and determine if first pregnancy"""
+        
+        demographics = patient_data.get("demographics", {})
+        pregnancy_number = demographics.get("pregnancy_number", "")
+        
+        # Try to extract number from text
+        import re
+        numbers = re.findall(r'\d+', patient_text)
+        if numbers:
+            try:
+                preg_num = int(numbers[0])
+                demographics["pregnancy_number"] = str(preg_num)
+                demographics["first_pregnancy"] = (preg_num == 1)
+                print(f"✅ Extracted pregnancy number: {preg_num}, first_pregnancy: {preg_num == 1}")
+            except:
+                pass
+        
+        # Also check for "pehla", "first" keywords
+        patient_text_lower = patient_text.lower()
+        if any(word in patient_text_lower for word in ["pehla", "pehli", "first", "1st", "ek"]):
+            if not demographics.get("pregnancy_number"):
+                demographics["pregnancy_number"] = "1"
+                demographics["first_pregnancy"] = True
+                print(f"✅ Detected first pregnancy from keywords")
+        
+        patient_data["demographics"] = demographics
+    
+    async def _extract_lmp_info(self, patient_text: str, patient_data: Dict[str, Any]):
+        """Extract LMP date and check if it was remembered"""
+        
+        demographics = patient_data.get("demographics", {})
+        
+        # Check if patient provided a date
+        import re
+        # Look for date patterns
+        date_patterns = [
+            r'\d{1,2}[\s\-/]\d{1,2}[\s\-/]\d{2,4}',  # DD/MM/YYYY
+            r'\d{1,2}\s+(january|february|march|april|may|june|july|august|september|october|november|december)',
+            r'\d{1,2}\s+(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)',
+        ]
+        
+        has_date = False
+        for pattern in date_patterns:
+            if re.search(pattern, patient_text, re.IGNORECASE):
+                has_date = True
+                break
+        
+        # Check for "yaad nahi", "remember nahi", "bhool gaya" etc.
+        patient_text_lower = patient_text.lower()
+        not_remembered_keywords = ["yaad nahi", "remember nahi", "bhool", "forgot", "pata nahi", "maloom nahi"]
+        not_remembered = any(keyword in patient_text_lower for keyword in not_remembered_keywords)
+        
+        if has_date and not not_remembered:
+            demographics["last_menstrual_period_remembered"] = True
+            demographics["last_menstrual_period"] = patient_text.strip()
+            print(f"✅ LMP date remembered: {patient_text.strip()}")
+        elif not_remembered:
+            demographics["last_menstrual_period_remembered"] = False
+            print(f"✅ LMP date not remembered")
+        
+        patient_data["demographics"] = demographics
     
     async def _extract_children_info(self, patient_text: str, patient_data: Dict[str, Any]):
         """Extract first_pregnancy, number_of_children, and check for twins from question 8 response"""
@@ -837,12 +951,26 @@ class IntelligentConversationEngine:
         return trimester
     
     def _get_next_valid_question_index(self, start_index: int, patient_data: Dict[str, Any]) -> int:
-        """Get the next valid question index, skipping obstetric history if first pregnancy, skipping question 48 if no twins, skipping 23-30 if first trimester"""
+        """Get the next valid question index with all conditional logic"""
         
         demographics = patient_data.get("demographics", {})
-        number_of_children = demographics.get("number_of_children", 0)
+        current_pregnancy = patient_data.get("current_pregnancy", {})
         
-        # Ensure number_of_children is an integer (Firestore may store as string)
+        # Get pregnancy number and determine if first pregnancy
+        pregnancy_number = demographics.get("pregnancy_number", "")
+        first_pregnancy = demographics.get("first_pregnancy", False)
+        
+        # Determine if 2nd or more pregnancy
+        is_2nd_or_more = False
+        try:
+            if pregnancy_number:
+                preg_num = int(pregnancy_number) if str(pregnancy_number).isdigit() else 0
+                is_2nd_or_more = preg_num >= 2
+        except:
+            pass
+        
+        # Get number of children
+        number_of_children = demographics.get("number_of_children", 0)
         try:
             if isinstance(number_of_children, str):
                 number_of_children = int(number_of_children) if number_of_children.isdigit() else 0
@@ -853,21 +981,33 @@ class IntelligentConversationEngine:
         except (ValueError, TypeError):
             number_of_children = 0
         
-        first_pregnancy = demographics.get("first_pregnancy", False)
+        # Check if LMP was remembered
+        lmp_remembered = demographics.get("last_menstrual_period_remembered", False)
+        if not lmp_remembered and demographics.get("last_menstrual_period"):
+            # If LMP date is provided, assume it was remembered
+            lmp_remembered = True
         
-        # If first pregnancy OR no children, skip obstetric history questions (31-41, which are indices 30-40)
-        skip_obstetric_history = first_pregnancy or number_of_children == 0
+        # Get trimester
+        trimester = self._get_pregnancy_trimester(patient_data)
         
         # Check if patient has twins
         has_twins = self._has_twins(patient_data)
         
-        # Check trimester - skip questions 23-30 (second/third trimester questions) if in first trimester
-        trimester = self._get_pregnancy_trimester(patient_data)
-        skip_second_third_trimester = trimester == "first"  # Skip if in first trimester (months 1-3)
+        # Skip obstetric history if first pregnancy
+        skip_obstetric_history = first_pregnancy or number_of_children == 0
+        
+        # Determine which obstetric history to use (1 child vs 2+ children)
+        use_single_child_obstetric = number_of_children == 1
+        use_multiple_children_obstetric = number_of_children >= 2
+        
+        # Check answers for conditional questions
+        blood_test_done = current_pregnancy.get("blood_urine_tests", "").lower() in ["yes", "haan", "gaya", "hua"]
+        sugar_bp_issue = current_pregnancy.get("sugar_bp_tests", "").lower() in ["yes", "haan", "masla", "problem"]
         
         for i in range(start_index, len(self.questions)):
             question = self.questions[i]
             question_id = question.get("id", 0)
+            condition = question.get("condition", "")
             
             # Ensure question_id is an integer
             try:
@@ -880,17 +1020,86 @@ class IntelligentConversationEngine:
             except (ValueError, TypeError):
                 question_id = 0
             
-            # Skip questions 31-41 (obstetric history for single child) if applicable
-            if skip_obstetric_history and 31 <= question_id <= 41:
+            # Condition 1: Question 6 (miscarriages/deaths) - only if 2nd+ pregnancy
+            if question_id == 6 and not is_2nd_or_more:
                 continue
             
-            # Skip questions 23-30 (second/third trimester questions) if in first trimester
-            if skip_second_third_trimester and 23 <= question_id <= 30:
+            # Condition 2: Question 8 (regular periods) - only if LMP not remembered
+            if question_id == 8 and lmp_remembered:
                 continue
             
-            # Skip question 48 (twins history) if patient doesn't have twins
-            if question_id == 48 and not has_twins:
+            # Condition 3: Skip obstetric history if first pregnancy
+            if skip_obstetric_history:
+                # Skip single child obstetric history (25-34)
+                if 25 <= question_id <= 34:
+                    continue
+                # Skip multiple children obstetric history (35-43)
+                if 35 <= question_id <= 43:
+                    continue
+            else:
+                # If not first pregnancy, use appropriate obstetric history
+                if use_single_child_obstetric and 35 <= question_id <= 43:
+                    continue  # Skip multiple children questions
+                if use_multiple_children_obstetric and 25 <= question_id <= 34:
+                    continue  # Skip single child questions
+            
+            # Condition 4: Skip 2nd/3rd trimester questions if in 1st trimester
+            if trimester == "first" and 15 <= question_id <= 24:
                 continue
+            
+            # Condition 5: If 3rd trimester, ask 3rd trimester questions first (21-24), then 1st (10-14), then 2nd (15-20)
+            # This is handled by the order in the questions list - 3rd trimester questions come after 2nd
+            
+            # Condition 6: Question 19 (Hb level) - only if blood test was done or not done (conditional follow-up)
+            if question_id == 19 and not current_pregnancy.get("blood_urine_tests"):
+                continue  # Skip if blood test question not answered yet
+            
+            # Condition 7: Question 21 (sugar/BP medication) - only if sugar/BP test showed issue
+            if question_id == 21 and not sugar_bp_issue:
+                continue
+            
+            # Condition 8: Question 24 (recent scan) - only if 3rd trimester
+            if question_id == 24 and trimester != "third":
+                continue
+            
+            # Condition 9: Question 50 (twins history) - only if twins
+            if question_id == 50 and not has_twins:
+                continue
+            
+            # Condition 10: Question 29 (normal delivery details) - only if normal delivery
+            if question_id == 29:
+                single_child = patient_data.get("obstetric_history", {}).get("single_child", {})
+                delivery_method = single_child.get("delivery_method", "").lower()
+                if "normal" not in delivery_method and "operation" not in delivery_method:
+                    # Check if we have the answer yet
+                    if not single_child.get("delivery_method"):
+                        # Not answered yet, ask it
+                        pass
+                    else:
+                        # Already answered, skip if not normal
+                        if "normal" not in delivery_method:
+                            continue
+            
+            # Condition 11: Question 30 (operation reason) - only if operation
+            if question_id == 30:
+                single_child = patient_data.get("obstetric_history", {}).get("single_child", {})
+                delivery_method = single_child.get("delivery_method", "").lower()
+                if delivery_method and "normal" in delivery_method:
+                    continue
+            
+            # Condition 12: Question 39 (normal delivery for multiple) - only if any normal delivery
+            if question_id == 39:
+                multiple_children = patient_data.get("obstetric_history", {}).get("multiple_children", {})
+                delivery_methods = multiple_children.get("delivery_methods", "").lower()
+                if delivery_methods and "normal" not in delivery_methods:
+                    continue
+            
+            # Condition 13: Question 40 (operation reasons for multiple) - only if any operation
+            if question_id == 40:
+                multiple_children = patient_data.get("obstetric_history", {}).get("multiple_children", {})
+                delivery_methods = multiple_children.get("delivery_methods", "").lower()
+                if delivery_methods and ("operation" not in delivery_methods and "c-section" not in delivery_methods):
+                    continue
             
             return i
         
