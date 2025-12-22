@@ -402,31 +402,75 @@ class IntelligentConversationEngine:
         
         # Step 1: Collect CNIC first (as per document)
         if not demographics.get("id_card_number"):
-            # Extract CNIC number (13 digits, may have dashes)
+            # Extract CNIC number (13 digits, may have dashes or spaces)
             cnic_patterns = [
-                r"cnic[:\s]*([\d\-]{13,19})",
-                r"shanakhti[:\s]*([\d\-]{13,19})",
-                r"([\d]{5}[\-]?[\d]{7}[\-]?[\d]{1})",  # Standard CNIC format
-                r"([\d]{13})"  # Just 13 digits
+                r"cnic[:\s]*([\d\s\-]{13,19})",
+                r"shanakhti[:\s]*([\d\s\-]{13,19})",
+                r"([\d]{5}[\s\-]?[\d]{7}[\s\-]?[\d]{1})",  # Standard CNIC format: 12345-1234567-1
+                r"([\d]{13})",  # Just 13 digits
+                r"([\d]{4}[\s\-]?[\d]{4}[\s\-]?[\d]{4}[\s\-]?[\d]{1})",  # Alternative format
+                r"([\d\s\-]{13,19})"  # Any 13-19 digit sequence with spaces/dashes
             ]
             
             extracted_cnic = None
             for pattern in cnic_patterns:
-                match = re.search(pattern, patient_text_lower, re.IGNORECASE)
+                match = re.search(pattern, patient_text, re.IGNORECASE)
                 if match:
-                    extracted_cnic = re.sub(r'[\s\-]', '', match.group(1).strip())
-                    if len(extracted_cnic) == 13:  # Valid CNIC length
+                    extracted_cnic = re.sub(r'[\s\-\+]', '', match.group(1).strip())
+                    if len(extracted_cnic) == 13 and extracted_cnic.isdigit():  # Valid CNIC length
                         demographics["id_card_number"] = extracted_cnic
-                        print(f"✅ Extracted CNIC: {extracted_cnic}")
+                        print(f"✅ Extracted CNIC via pattern: {extracted_cnic}")
                         break
+            
+            # If pattern matching failed, try AI extraction
+            if not demographics.get("id_card_number") and settings.openai_api_key and len(settings.openai_api_key) > 10:
+                cnic_extraction_prompt = f"""
+                Extract CNIC (ID card number) from this Urdu/English response: "{patient_text}"
+                
+                CNIC is a 13-digit number in Pakistan. It may be spoken as:
+                - Individual digits (e.g., "1 2 3 4 5 1 2 3 4 5 6 7 1")
+                - With dashes (e.g., "12345-1234567-1")
+                - As a continuous number (e.g., "1234512345671")
+                - In Urdu words for numbers
+                
+                Look for:
+                - Words like "cnic", "shanakhti", "identity card", "id card"
+                - 13-digit numbers
+                - Numbers mentioned after "cnic" or "shanakhti"
+                
+                Return ONLY the 13-digit CNIC number (no dashes, no spaces) as JSON: {{"id_card_number": "1234512345671"}}
+                If no CNIC found, return: {{"id_card_number": ""}}
+                """
+                
+                try:
+                    response = openai.chat.completions.create(
+                        model="gpt-4",
+                        messages=[{"role": "user", "content": cnic_extraction_prompt}],
+                        temperature=0.1
+                    )
+                    
+                    response_text = response.choices[0].message.content.strip()
+                    if "{" in response_text:
+                        start_idx = response_text.find("{")
+                        end_idx = response_text.rfind("}") + 1
+                        extracted = json.loads(response_text[start_idx:end_idx])
+                        
+                        cnic_value = extracted.get("id_card_number", "").strip()
+                        # Clean the CNIC (remove dashes, spaces)
+                        cnic_value = re.sub(r'[\s\-\+]', '', cnic_value)
+                        if len(cnic_value) == 13 and cnic_value.isdigit():
+                            demographics["id_card_number"] = cnic_value
+                            print(f"✅ Extracted CNIC via AI: {cnic_value}")
+                except Exception as e:
+                    print(f"⚠️ CNIC AI extraction failed: {e}")
             
             if not demographics.get("id_card_number"):
                 # Ask for CNIC
                 if not patient_data.get("has_greeted"):
                     patient_data["has_greeted"] = True
-                    response_text = "وعلیکم السلام! میں آپ کی گائناکالوجی کی مدد کرنے کے لئے ہوں۔ براہ کرم اپنا یا اپنے شوہر کا CNIC نمبر لکھیں تاکہ ہم آپ سے رابطہ کر سکیں۔"
+                    response_text = "وعلیکم السلام! میں آپ کی گائناکالوجی کی مدد کرنے کے لئے ہوں۔ براہ کرم اپنا یا اپنے شوہر کا CNIC نمبر بتائیں تاکہ ہم آپ سے رابطہ کر سکیں۔"
                 else:
-                    response_text = "براہ کرم اپنا یا اپنے شوہر کا CNIC نمبر لکھیں۔"
+                    response_text = "براہ کرم اپنا یا اپنے شوہر کا CNIC نمبر بتائیں۔"
                 
                 patient_data["demographics"] = demographics
                 return {
@@ -521,24 +565,31 @@ class IntelligentConversationEngine:
             missing_fields.append("age")
         if not demographics.get("phone_number"):
             missing_fields.append("phone_number")
+        if not demographics.get("id_card_number"):
+            missing_fields.append("id_card_number")
         
         if missing_fields and settings.openai_api_key and len(settings.openai_api_key) > 10:
             extraction_prompt = f"""
-            Extract basic demographics from this response: "{patient_text}"
+            Extract basic demographics from this Urdu/English response: "{patient_text}"
             
             Extract ONLY these missing fields: {', '.join(missing_fields)}
             
             Extract:
             - Name (if mentioned) - look for words like "naam", "name", "mera naam", "my name"
             - Age (if mentioned) - look for numbers with "umar", "age", "saal", "years"
-            - Phone number (if mentioned) - look for digits in phone format
+            - Phone number (if mentioned) - look for digits in phone format (usually 10-12 digits)
+            - CNIC/ID card number (if mentioned) - look for 13-digit number, may be spoken as individual digits or with dashes
             
-            Return JSON: {{"name": "", "age": "", "phone_number": ""}}
+            Return JSON: {{"name": "", "age": "", "phone_number": "", "id_card_number": ""}}
             
             Examples:
             - "mera naam sadia hai" → {{"name": "sadia"}}
             - "meri umar 25 hai" → {{"age": "25"}}
             - "mera phone 923001234567 hai" → {{"phone_number": "923001234567"}}
+            - "mera cnic 12345-1234567-1 hai" → {{"id_card_number": "1234512345671"}}
+            - "shanakhti 1 2 3 4 5 1 2 3 4 5 6 7 1" → {{"id_card_number": "1234512345671"}}
+            
+            For CNIC: Return only the 13 digits (no dashes, no spaces)
             """
             
             try:
@@ -563,6 +614,11 @@ class IntelligentConversationEngine:
                     if extracted.get("phone_number") and not demographics.get("phone_number"):
                         demographics["phone_number"] = extracted["phone_number"]
                         print(f"✅ Extracted phone via AI: {extracted['phone_number']}")
+                    if extracted.get("id_card_number") and not demographics.get("id_card_number"):
+                        cnic_value = re.sub(r'[\s\-\+]', '', str(extracted["id_card_number"]).strip())
+                        if len(cnic_value) == 13 and cnic_value.isdigit():
+                            demographics["id_card_number"] = cnic_value
+                            print(f"✅ Extracted CNIC via AI: {cnic_value}")
             except Exception as e:
                 print(f"⚠️ AI extraction failed: {e}")
         
@@ -576,8 +632,10 @@ class IntelligentConversationEngine:
         print(f"  Age: {demographics.get('age', 'NOT SET')}")
         print(f"  Phone: {demographics.get('phone_number', 'NOT SET')}")
         
-        # Check what's missing
+        # Check what's missing (CNIC is already checked above, so we check name, age, phone here)
         missing_info = []
+        if not demographics.get("id_card_number") or demographics.get("id_card_number") == "":
+            missing_info.append("CNIC نمبر")
         if not demographics.get("name") or demographics.get("name") == "":
             missing_info.append("نام")
         if not demographics.get("age") or demographics.get("age") == "":
