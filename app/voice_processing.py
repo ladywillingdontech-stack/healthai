@@ -5,6 +5,7 @@ import os
 from typing import Optional
 from app.config import settings
 import httpx
+from app.urdu_converter import urdu_converter
 
 
 class VoiceProcessor:
@@ -70,6 +71,11 @@ class VoiceProcessor:
     def text_to_speech(self, text: str) -> Optional[str]:
         """Convert text to Urdu speech using ElevenLabs and save to file"""
         try:
+            # Convert Roman Urdu to Urdu script for better TTS
+            urdu_text = urdu_converter.convert_to_urdu(text, use_ai=True)
+            print(f"📝 Original text: {text[:100]}...")
+            print(f"📝 Converted to Urdu: {urdu_text[:100]}...")
+            
             url = f"https://api.elevenlabs.io/v1/text-to-speech/{self.elevenlabs_voice_id}"
             
             headers = {
@@ -79,7 +85,7 @@ class VoiceProcessor:
             }
             
             data = {
-                "text": text,
+                "text": urdu_text,  # Use converted Urdu text
                 "model_id": "eleven_multilingual_v2",
                 "voice_settings": {
                     "stability": 0.5,           # Voice consistency (0.0-1.0)
