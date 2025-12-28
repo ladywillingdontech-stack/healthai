@@ -191,62 +191,70 @@ class UrduConverter:
         return bool(urdu_pattern.search(text))
     
     def _convert_with_ai(self, text: str) -> str:
-        """Use GPT-4 to convert Roman Urdu to Urdu script"""
+        """Use GPT-4 to convert Roman Urdu to Urdu script with improved accuracy"""
         try:
             # Skip AI conversion for very short text or if it's mostly numbers/special chars
             if len(text.strip()) < 5:
                 return text
             
-            prompt = f"""Convert this Roman Urdu (English transliteration) text to proper Urdu script. 
-Keep the meaning and tone exactly the same. Preserve any numbers, dates, or English words (like CNIC, test names, etc.) as they are.
-Only convert the Roman Urdu words to Urdu script.
+            prompt = f"""You are an expert Urdu linguist. Convert this Roman Urdu (English transliteration) text to proper, grammatically correct Urdu script.
+
+CRITICAL RULES:
+1. Use proper Urdu grammar and correct word forms (e.g., "آپ کا" not "آپکا", "آپ کی" not "آپکی")
+2. Use correct Urdu diacritics and proper letter combinations
+3. Preserve numbers as digits (e.g., "25" stays "25")
+4. Keep English medical/technical terms as-is: CNIC, Hb, ultrasound, test, BP, sugar, etc.
+5. Use proper Urdu punctuation marks (؟ for questions, ، for commas)
+6. Ensure proper spacing between words
+7. Use correct Urdu verb forms and conjugations
+8. Convert ALL Roman Urdu words to proper Urdu script - do not leave any Roman Urdu words unconverted
 
 Text to convert: "{text}"
 
-Important:
-- Keep numbers as digits (e.g., "25" stays "25", not "پچیس")
-- Keep English medical terms like "CNIC", "Hb", "ultrasound", "test" as they are
-- Convert only the Roman Urdu words to proper Urdu script
-- Return ONLY the converted text, no explanations
+Examples of correct conversion:
+- "Aapka naam kya hai?" → "آپ کا نام کیا ہے؟"
+- "Aapki umar kitni hai?" → "آپ کی عمر کتنی ہے؟"
+- "Mera naam Sadia hai" → "میرا نام سعدیہ ہے"
+- "Kya aapko dard hai?" → "کیا آپ کو درد ہے؟"
+- "Aapne test karwaya?" → "آپ نے ٹیسٹ کروایا؟"
 
-Example:
-Input: "Aapka naam kya hai? Aapki umar kitni hai?"
-Output: "آپ کا نام کیا ہے؟ آپ کی عمر کتنی ہے؟"
+Now convert this text accurately: "{text}"
 
-Now convert this: "{text}"
-"""
+Return ONLY the converted Urdu text, nothing else. No explanations, no quotes, just the Urdu text."""
             
             response = openai.chat.completions.create(
                 model="gpt-4",
                 messages=[
-                    {"role": "system", "content": "You are an expert in converting Roman Urdu (English transliteration) to proper Urdu script. You preserve numbers, dates, and English technical terms while converting only the Urdu words."},
+                    {"role": "system", "content": "You are an expert Urdu linguist specializing in converting Roman Urdu (English transliteration) to proper, grammatically correct Urdu script. You understand Urdu grammar, proper word forms, diacritics, and punctuation. You always produce accurate, natural-sounding Urdu text."},
                     {"role": "user", "content": prompt}
                 ],
-                temperature=0.1,
+                temperature=0.0,  # Lower temperature for more consistent, accurate results
                 max_tokens=1000
             )
             
             urdu_text = response.choices[0].message.content.strip()
             
-            # Remove quotes if present
+            # Clean up the response - remove quotes, prefixes, etc.
             urdu_text = urdu_text.strip('"').strip("'").strip()
             
-            # Remove any prefix like "Output:" or "Converted:" if present
-            if ':' in urdu_text:
+            # Remove common prefixes that GPT might add
+            prefixes_to_remove = ["Output:", "Converted:", "Urdu text:", "Result:", "Answer:"]
+            for prefix in prefixes_to_remove:
+                if urdu_text.lower().startswith(prefix.lower()):
+                    urdu_text = urdu_text[len(prefix):].strip().strip('"').strip("'").strip()
+            
+            # If there's a colon, take everything after it
+            if ':' in urdu_text and not self._is_urdu_text(urdu_text.split(':')[0]):
                 parts = urdu_text.split(':', 1)
                 if len(parts) > 1:
-                    urdu_text = parts[1].strip().strip('"').strip("'")
+                    urdu_text = parts[1].strip().strip('"').strip("'").strip()
             
-            # Verify it's actually Urdu (contains Urdu characters) or is a valid conversion
-            if self._is_urdu_text(urdu_text) or len(urdu_text) > 0:
-                if self._is_urdu_text(urdu_text):
-                    print(f"✅ Converted to Urdu via AI: {urdu_text[:80]}...")
-                else:
-                    print(f"⚠️ AI returned text without Urdu characters, using original")
-                    return text
+            # Verify it's actually Urdu (contains Urdu characters)
+            if self._is_urdu_text(urdu_text):
+                print(f"✅ Converted to Urdu via AI: {urdu_text[:100]}...")
                 return urdu_text
             else:
-                print(f"⚠️ AI returned empty text, using pattern matching")
+                print(f"⚠️ AI returned text without Urdu characters, using pattern matching")
                 return text
                 
         except Exception as e:
@@ -270,4 +278,3 @@ Now convert this: "{text}"
 
 # Initialize converter
 urdu_converter = UrduConverter()
-
