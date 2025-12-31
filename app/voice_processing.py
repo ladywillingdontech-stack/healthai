@@ -68,8 +68,8 @@ class VoiceProcessor:
             print(f"Error in speech-to-text: {e}")
             return ""
 
-    def text_to_speech(self, text: str) -> Optional[str]:
-        """Convert text to Urdu speech using ElevenLabs and save to file"""
+    async def text_to_speech(self, text: str) -> Optional[str]:
+        """Convert text to Urdu speech using ElevenLabs and save to file (async)"""
         try:
             # Convert Roman Urdu to Urdu script for better TTS
             urdu_text = urdu_converter.convert_to_urdu(text, use_ai=True)
@@ -95,7 +95,9 @@ class VoiceProcessor:
                 }
             }
             
-            response = requests.post(url, json=data, headers=headers)
+            # Use httpx for async requests
+            async with httpx.AsyncClient(timeout=30.0) as client:
+                response = await client.post(url, json=data, headers=headers)
             
             if response.status_code == 200:
                 # Save audio to temporary file
@@ -119,9 +121,9 @@ class VoiceProcessor:
         text = await self.speech_to_text(audio_url)
         return text
 
-    def generate_voice_response(self, text: str) -> Optional[str]:
-        """Generate voice response from text"""
-        return self.text_to_speech(text)
+    async def generate_voice_response(self, text: str) -> Optional[str]:
+        """Generate voice response from text (async)"""
+        return await self.text_to_speech(text)
 
     def cleanup_audio_file(self, file_path: str):
         """Clean up temporary audio file"""
