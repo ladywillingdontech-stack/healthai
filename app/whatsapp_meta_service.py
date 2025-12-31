@@ -6,6 +6,8 @@ Handles sending and receiving WhatsApp messages using Meta's official API
 import requests
 import json
 import os
+import asyncio
+import time
 from typing import Optional, Dict, Any
 from app.config import settings
 
@@ -16,6 +18,25 @@ class MetaWhatsAppService:
         self.verify_token = settings.whatsapp_verify_token
         # Let WhatsApp decide the API version automatically
         self.base_url = f"https://graph.facebook.com/{self.phone_number_id}"
+        
+        # Message deduplication: Track processed message IDs with timestamps
+        # Format: {message_id: timestamp}
+        self.processed_messages: Dict[str, float] = {}
+        
+        # Per-patient locks to prevent concurrent processing
+        # Format: {patient_id: asyncio.Lock}
+        self.patient_locks: Dict[str, asyncio.Lock] = {}
+        
+        # Lock for managing patient_locks dictionary (using threading.Lock for sync access)
+        import threading
+        self.locks_lock = threading.Lock()
+        
+        # Track last response sent per patient to prevent duplicate responses
+        # Format: {patient_id: (message_id, timestamp)}
+        self.last_response: Dict[str, tuple] = {}
+        
+        # Cleanup old processed messages every 5 minutes (keep for 1 hour)
+        self.message_ttl = 3600  # 1 hour in seconds
         
     
     def send_voice_message(self, to_number: str, audio_url: str) -> bool:
@@ -323,59 +344,160 @@ class MetaWhatsAppService:
             traceback.print_exc()
             return {}
     
+    def _is_message_processed(self, message_id: str) -> bool:
+        """Check if a message has already been processed"""
+        if not message_id:
+            return False
+        
+        # Cleanup old messages
+        current_time = time.time()
+        expired_ids = [
+            msg_id for msg_id, timestamp in self.processed_messages.items()
+            if current_time - timestamp > self.message_ttl
+        ]
+        for msg_id in expired_ids:
+            del self.processed_messages[msg_id]
+        
+        # Check if message was already processed
+        if message_id in self.processed_messages:
+            print(f"⚠️ Message {message_id} already processed, skipping duplicate")
+            return True
+        
+        return False
+    
+    def _mark_message_processed(self, message_id: str):
+        """Mark a message as processed"""
+        if message_id:
+            self.processed_messages[message_id] = time.time()
+            print(f"✅ Marked message {message_id} as processed")
+    
+    async def _get_patient_lock(self, patient_id: str) -> asyncio.Lock:
+        """Get or create a lock for a specific patient"""
+        # Use threading lock for synchronous dictionary access
+        with self.locks_lock:
+            if patient_id not in self.patient_locks:
+                self.patient_locks[patient_id] = asyncio.Lock()
+            return self.patient_locks[patient_id]
+    
     async def handle_webhook(self, webhook_data: Dict[str, Any]) -> Dict[str, Any]:
         """Handle incoming webhook data from WhatsApp"""
         try:
             # Process the webhook data
             message_data = self.process_webhook_data(webhook_data)
             
-            if message_data:
-                print(f"📱 Received WhatsApp message: {message_data}")
-                
-                # Mark message as read
-                if message_data.get('message_id'):
-                    self.mark_message_as_read(message_data['message_id'])
-                
-                # Process the message based on type
-                from_number = message_data.get('from_number', '')
-                message_type = message_data.get('type', 'text')
-                
-                if message_type == 'audio':
-                    print(f"🎵 Processing voice message from {from_number}")
-                    # Handle voice message
-                    await self.handle_voice_message(message_data)
-                else:
-                    print(f"❓ Ignoring non-voice message type: {message_type}")
-                
-                return {
-                    "success": True,
-                    "message_data": message_data,
-                    "processed": True
-                }
-            else:
+            if not message_data:
                 return {
                     "success": False,
                     "message": "No valid message data found"
                 }
+            
+            message_id = message_data.get('message_id', '')
+            from_number = message_data.get('from_number', '')
+            
+            # Check for duplicate messages
+            if self._is_message_processed(message_id):
+                return {
+                    "success": True,
+                    "message_data": message_data,
+                    "processed": False,
+                    "reason": "duplicate"
+                }
+            
+            print(f"📱 Received WhatsApp message: {message_data}")
+            
+            # Mark message as read (non-blocking)
+            if message_id:
+                self.mark_message_as_read(message_id)
+            
+            # Process the message based on type
+            message_type = message_data.get('type', 'text')
+            
+            if message_type == 'audio':
+                print(f"🎵 Processing voice message from {from_number}")
+                
+                # Get patient-specific lock to prevent concurrent processing
+                patient_lock = await self._get_patient_lock(from_number)
+                
+                async with patient_lock:
+                    # Double-check after acquiring lock (in case another request processed it)
+                    if self._is_message_processed(message_id):
+                        print(f"⚠️ Message {message_id} was processed by another request, skipping")
+                        return {
+                            "success": True,
+                            "message_data": message_data,
+                            "processed": False,
+                            "reason": "duplicate_after_lock"
+                        }
+                    
+                    # Mark as processed BEFORE processing (to prevent race conditions)
+                    self._mark_message_processed(message_id)
+                    
+                    # Handle voice message
+                    await self.handle_voice_message(message_data)
+            else:
+                print(f"❓ Ignoring non-voice message type: {message_type}")
+                # Mark non-voice messages as processed too
+                if message_id:
+                    self._mark_message_processed(message_id)
+            
+            return {
+                "success": True,
+                "message_data": message_data,
+                "processed": True
+            }
                 
         except Exception as e:
             print(f"❌ Error handling webhook: {e}")
+            import traceback
+            traceback.print_exc()
             return {
                 "success": False,
                 "error": str(e)
             }
+    
+    def _should_send_response(self, patient_id: str, message_id: str) -> bool:
+        """Check if we should send a response (prevent duplicate responses)"""
+        current_time = time.time()
+        
+        # Check if we recently sent a response to this patient
+        if patient_id in self.last_response:
+            last_msg_id, last_timestamp = self.last_response[patient_id]
+            
+            # If same message or very recent (within 2 seconds), don't send
+            if last_msg_id == message_id or (current_time - last_timestamp) < 2.0:
+                print(f"⚠️ Skipping duplicate response for patient {patient_id}, message {message_id}")
+                return False
+        
+        # Update last response tracking
+        self.last_response[patient_id] = (message_id, current_time)
+        
+        # Cleanup old entries (older than 5 minutes)
+        expired_patients = [
+            pid for pid, (_, ts) in self.last_response.items()
+            if current_time - ts > 300
+        ]
+        for pid in expired_patients:
+            del self.last_response[pid]
+        
+        return True
     
     async def handle_voice_message(self, message_data: Dict[str, Any]):
         """Handle incoming voice message"""
         try:
             from_number = message_data.get('from_number', '')
             media_id = message_data.get('media_id', '')
+            message_id = message_data.get('message_id', '')
             
             print(f"🎵 Starting voice message processing for {from_number}")
-            print(f"🎵 Media ID: {media_id}")
+            print(f"🎵 Media ID: {media_id}, Message ID: {message_id}")
             
             if not media_id:
                 print("❌ No media ID found in voice message")
+                return
+            
+            # Check if we should send a response (prevent duplicates)
+            if not self._should_send_response(from_number, message_id):
+                print(f"⚠️ Skipping response for {from_number} - duplicate detected")
                 return
             
             # Download the voice message
@@ -438,6 +560,8 @@ class MetaWhatsAppService:
                     
         except Exception as e:
             print(f"❌ Error handling voice message: {e}")
+            import traceback
+            traceback.print_exc()
     
     
     def mark_message_as_read(self, message_id: str) -> bool:
@@ -468,12 +592,3 @@ class MetaWhatsAppService:
 
 # Global instance
 whatsapp_service = MetaWhatsAppService()
-
-
-
-
-
-
-
-
-
