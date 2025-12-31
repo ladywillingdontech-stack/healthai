@@ -5,6 +5,7 @@ import uuid
 import os
 import openai
 from datetime import datetime
+import firebase_admin
 
 from app.firestore_service import firestore_service
 from app.models import *
@@ -23,6 +24,12 @@ app = FastAPI(
     description="Healthcare intake system with AI-powered Urdu voice conversations using Firestore",
     version="1.0.0"
 )
+
+@app.on_event("shutdown")
+async def shutdown_event():
+    """Cleanup on shutdown"""
+    await whatsapp_service.close_http_client()
+    print("✅ Cleaned up HTTP clients")
 
 # CORS middleware
 app.add_middleware(
@@ -43,12 +50,8 @@ app.add_middleware(
 async def root():
     return {"message": "Health AI Bot API is running", "version": "1.0.0"}
 
-# Render health-check sends HEAD /. Ensure 200 instead of 405.
-@app.head("/")
-async def root_head() -> Response:
-    return Response(status_code=200)
-
-# Health check endpoint for Railway
+# Health check endpoint
+# Health check endpoint
 @app.get("/health")
 async def health_check():
     """Health check endpoint to verify all services"""
@@ -116,7 +119,21 @@ async def debug_env_vars():
         return {
             "error": str(e)
         }
-        
+
+# Render health-check sends HEAD /. Ensure 200 instead of 405.
+@app.head("/")
+async def root_head() -> Response:
+    return Response(status_code=200)
+
+# Health check endpoint for Railway
+@app.get("/health")
+async def health_check():
+    return {
+        "status": "healthy",
+        "timestamp": datetime.now().isoformat(),
+        "service": "Health AI Bot API"
+    }
+
 # Production endpoints
 @app.post("/voice-conversation", response_model=VoiceResponse)
 async def voice_conversation(audio: UploadFile = File(...), patient_id: str = "default_patient"):
@@ -153,10 +170,11 @@ async def voice_conversation(audio: UploadFile = File(...), patient_id: str = "d
             
             updated_patient_data = conversation_result.get("patient_data", {})
             print(f"Updated patient data: {updated_patient_data.get('demographics', {})}")
-
-             # Save updated patient data to Firestore
-            await firestore_service.update_patient(patient_id, updated_patient_data)
-            print(f"✅ Patient data updated in Firestore. Current phase: {updated_patient_data.get('current_phase')}")
+            
+            # Save updated patient data to Firestore
+            print(f"🔄 Saving patient data to Firestore. Current phase: {updated_patient_data.get('current_phase')}")
+            update_success = await firestore_service.update_patient(patient_id, updated_patient_data)
+            print(f"✅ Patient data update result: {update_success}")
             
             # Step 3: Generate AI response text
             response_text = conversation_result.get('response_text', 'I understand. Please tell me more about your symptoms.')
@@ -177,7 +195,7 @@ async def voice_conversation(audio: UploadFile = File(...), patient_id: str = "d
             
             # Step 4: Convert response to speech
             print("Converting response to speech...")
-            audio_file = voice_processor.text_to_speech(response_text)
+            audio_file = await voice_processor.text_to_speech(response_text)
             
             return VoiceResponse(
                 success=True,
@@ -221,18 +239,56 @@ async def conversation(patient_text: str, patient_id: str = "default_patient"):
         }
 
 @app.post("/generate-emr")
-async def generate_emr(patient_id: str):
+@app.get("/generate-emr")
+async def generate_emr(patient_id: str = None, request: Request = None):
     """Generate EMR for patient"""
     try:
+        # Handle both GET and POST requests
+        if request and request.method == "GET":
+            # For GET requests, get patient_id from query params
+            if not patient_id:
+                return {
+                    "success": False,
+                    "error": "patient_id parameter is required"
+                }
+        
+        if not patient_id:
+            return {
+                "success": False,
+                "error": "patient_id is required"
+            }
+        
+        # Check if patient exists first
+        patient = await firestore_service.get_patient(patient_id)
+        if not patient:
+            return {
+                "success": False,
+                "error": f"Patient {patient_id} not found"
+            }
+        
+        # Check if OpenAI key is available
+        if not settings.openai_api_key or len(settings.openai_api_key) < 10:
+            return {
+                "success": False,
+                "error": "OpenAI API key not configured"
+            }
+        
+        print(f"🔧 Generating EMR for patient: {patient_id}")
         emr_result = await intelligent_conversation_engine.generate_emr(patient_id)
+        
         return {
             "success": emr_result,
-            "message": "EMR generated successfully" if emr_result else "EMR generation failed"
+            "message": "EMR generated successfully" if emr_result else "EMR generation failed",
+            "patient_id": patient_id,
+            "patient_found": bool(patient),
+            "openai_configured": bool(settings.openai_api_key and len(settings.openai_api_key) > 10)
         }
     except Exception as e:
+        print(f"❌ EMR generation error: {e}")
         return {
             "success": False,
-            "error": str(e)
+            "error": str(e),
+            "patient_id": patient_id
         }
 
 # Authentication endpoints
@@ -391,24 +447,24 @@ async def get_all_emrs():
         # If no EMRs found directly, try the old method
         if not all_emrs:
             print("📋 Trying to get EMRs via patients...")
-            # Get all patients first
-            patients_response = await firestore_service.get_all_patients()
-            
-            # Get EMRs for each patient
-            for patient in patients_response:
-                patient_id = patient.get('patient_id', '')
-                if patient_id:
-                    emrs = await firestore_service.get_patient_emrs(patient_id)
-                    if emrs:
-                        # Add patient info to each EMR
-                        for emr in emrs:
-                            emr['patient_info'] = {
-                                'patient_id': patient_id,
-                                'name': patient.get('demographics', {}).get('name', 'Unknown'),
-                                'age': patient.get('demographics', {}).get('age', 'Unknown'),
-                                'phone': patient.get('demographics', {}).get('phone_number', 'Unknown')
-                            }
-                        all_emrs.extend(emrs)
+        # Get all patients first
+        patients_response = await firestore_service.get_all_patients()
+        
+        # Get EMRs for each patient
+        for patient in patients_response:
+            patient_id = patient.get('patient_id', '')
+            if patient_id:
+                emrs = await firestore_service.get_patient_emrs(patient_id)
+                if emrs:
+                    # Add patient info to each EMR
+                    for emr in emrs:
+                        emr['patient_info'] = {
+                            'patient_id': patient_id,
+                            'name': patient.get('demographics', {}).get('name', 'Unknown'),
+                            'age': patient.get('demographics', {}).get('age', 'Unknown'),
+                            'phone': patient.get('demographics', {}).get('phone_number', 'Unknown')
+                        }
+                    all_emrs.extend(emrs)
         
         # Sort by creation date (newest first)
         all_emrs.sort(key=lambda x: x.get('created_at', ''), reverse=True)
@@ -510,7 +566,8 @@ async def debug_whatsapp_config():
             "whatsapp_verify_token": settings.whatsapp_verify_token,
             "whatsapp_verify_token_length": len(settings.whatsapp_verify_token) if settings.whatsapp_verify_token else 0,
             "whatsapp_access_token_length": len(settings.whatsapp_access_token) if settings.whatsapp_access_token else 0,
-            "whatsapp_configured": bool(settings.whatsapp_access_token and settings.whatsapp_verify_token)
+            "whatsapp_configured": bool(settings.whatsapp_access_token and settings.whatsapp_verify_token),
+            "verify_token_preview": settings.whatsapp_verify_token[:10] + "..." if settings.whatsapp_verify_token else "Not set"
         }
         return config_info
     except Exception as e:
@@ -576,11 +633,14 @@ async def whatsapp_webhook(request: Request):
     """Handle WhatsApp webhook"""
     try:
         body = await request.json()
+        # Process webhook asynchronously without blocking
         result = await whatsapp_service.handle_webhook(body)
         return {"success": True, "result": result}
         
     except Exception as e:
         print(f"❌ Webhook processing error: {e}")
+        import traceback
+        traceback.print_exc()
         return {"success": False, "error": str(e)}
 
 @app.post("/whatsapp/send-message")
@@ -596,6 +656,16 @@ async def send_whatsapp_message(message_data: dict):
     except Exception as e:
         return {"success": False, "error": str(e)}
 
+# Authentication endpoints
+@app.post("/auth/login")
+async def login(credentials: dict):
+    """User login"""
+    try:
+        result = await auth_service.login(credentials["email"], credentials["password"])
+        return {"success": True, "result": result}
+        
+    except Exception as e:
+        return {"success": False, "error": str(e)}
 
 @app.post("/auth/register")
 async def register(user_data: dict):
@@ -640,3 +710,6 @@ async def setup_chroma():
     except Exception as e:
         return {"success": False, "error": str(e)}
 
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run(app, host="0.0.0.0", port=8000)
