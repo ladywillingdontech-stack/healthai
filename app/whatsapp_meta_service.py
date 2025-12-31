@@ -3,7 +3,7 @@ Meta WhatsApp Business API Integration
 Handles sending and receiving WhatsApp messages using Meta's official API
 """
 
-import requests
+import httpx
 import json
 import os
 import asyncio
@@ -18,6 +18,16 @@ class MetaWhatsAppService:
         self.verify_token = settings.whatsapp_verify_token
         # Let WhatsApp decide the API version automatically
         self.base_url = f"https://graph.facebook.com/{self.phone_number_id}"
+        
+        # Create async HTTP client with connection pooling for better performance
+        self.http_client = httpx.AsyncClient(
+            timeout=httpx.Timeout(30.0, connect=10.0),  # 30s total, 10s connect
+            limits=httpx.Limits(max_connections=100, max_keepalive_connections=20),
+            http2=True  # Use HTTP/2 for better performance
+        )
+        
+        # Rate limiting semaphore to prevent overwhelming WhatsApp API
+        self.api_semaphore = asyncio.Semaphore(20)  # Max 20 concurrent API calls
         
         # Message deduplication: Track processed message IDs with timestamps
         # Format: {message_id: timestamp}
@@ -37,63 +47,69 @@ class MetaWhatsAppService:
         
         # Cleanup old processed messages every 5 minutes (keep for 1 hour)
         self.message_ttl = 3600  # 1 hour in seconds
+    
+    async def close_http_client(self):
+        """Close HTTP client on shutdown"""
+        await self.http_client.aclose()
         
     
-    def send_voice_message(self, to_number: str, audio_url: str) -> bool:
-        """Send a voice message via WhatsApp"""
-        try:
-            url = f"{self.base_url}/messages"
-            headers = {
-                "Authorization": f"Bearer {self.access_token}",
-                "Content-Type": "application/json"
-            }
-            
-            data = {
-                "messaging_product": "whatsapp",
-                "to": to_number,
-                "type": "audio",
-                "audio": {
-                    "link": audio_url
+    async def send_voice_message(self, to_number: str, audio_url: str) -> bool:
+        """Send a voice message via WhatsApp (async)"""
+        async with self.api_semaphore:
+            try:
+                url = f"{self.base_url}/messages"
+                headers = {
+                    "Authorization": f"Bearer {self.access_token}",
+                    "Content-Type": "application/json"
                 }
-            }
-            
-            response = requests.post(url, headers=headers, json=data)
-            response.raise_for_status()
-            
-            print(f"✅ Voice message sent to {to_number}")
-            return True
-            
-        except requests.exceptions.RequestException as e:
-            print(f"❌ Error sending voice message: {e}")
-            return False
+                
+                data = {
+                    "messaging_product": "whatsapp",
+                    "to": to_number,
+                    "type": "audio",
+                    "audio": {
+                        "link": audio_url
+                    }
+                }
+                
+                response = await self.http_client.post(url, headers=headers, json=data)
+                response.raise_for_status()
+                
+                print(f"✅ Voice message sent to {to_number}")
+                return True
+                
+            except httpx.HTTPError as e:
+                print(f"❌ Error sending voice message: {e}")
+                return False
     
-    def send_media_message(self, to_number: str, media_url: str, media_type: str = "audio") -> bool:
-        """Send media message (audio, image, document) via WhatsApp"""
-        try:
-            url = f"{self.base_url}/messages"
-            headers = {
-                "Authorization": f"Bearer {self.access_token}",
-                "Content-Type": "application/json"
-            }
-            
-            data = {
-                "messaging_product": "whatsapp",
-                "to": to_number,
-                "type": media_type,
-                media_type: {
-                    "link": media_url
+    async def send_media_message(self, to_number: str, media_url: str, media_type: str = "audio") -> bool:
+        """Send media message (audio, image, document) via WhatsApp (async)"""
+        async with self.api_semaphore:
+            try:
+                url = f"{self.base_url}/messages"
+                headers = {
+                    "Authorization": f"Bearer {self.access_token}",
+                    "Content-Type": "application/json"
                 }
-            }
-            
-            response = requests.post(url, headers=headers, json=data)
-            response.raise_for_status()
-            
-            print(f"✅ {media_type} message sent to {to_number}")
-            return True
-            
-        except requests.exceptions.RequestException as e:
-            print(f"❌ Error sending {media_type} message: {e}")
-            return False
+                
+                data = {
+                    "messaging_product": "whatsapp",
+                    "to": to_number,
+                    "type": media_type,
+                    media_type: {
+                        "link": media_url
+                    }
+                }
+                
+                response = await self.http_client.post(url, headers=headers, json=data)
+                response.raise_for_status()
+                
+                print(f"✅ {media_type} message sent to {to_number}")
+                return True
+                
+            except httpx.HTTPError as e:
+                print(f"❌ Error sending {media_type} message: {e}")
+                return False
     
     def send_template_message(self, to_number: str, template_name: str, language_code: str = "en", components: list = None) -> bool:
         """Send a template message via WhatsApp"""
@@ -129,15 +145,15 @@ class MetaWhatsAppService:
             print(f"❌ Error sending template message: {e}")
             return False
     
-    def upload_media(self, media_file_path: str, media_type: str = "audio") -> Optional[str]:
-        """Upload media file to WhatsApp servers and get media ID"""
-        try:
-            url = f"https://graph.facebook.com/{self.phone_number_id}/media"
-            headers = {
-                "Authorization": f"Bearer {self.access_token}"
-            }
-            
-            with open(media_file_path, 'rb') as file:
+    async def upload_media(self, media_file_path: str, media_type: str = "audio") -> Optional[str]:
+        """Upload media file to WhatsApp servers and get media ID (async)"""
+        async with self.api_semaphore:
+            try:
+                url = f"https://graph.facebook.com/{self.phone_number_id}/media"
+                headers = {
+                    "Authorization": f"Bearer {self.access_token}"
+                }
+                
                 # Determine correct MIME type based on file extension
                 file_extension = os.path.splitext(media_file_path)[1].lower()
                 mime_type_map = {
@@ -151,18 +167,27 @@ class MetaWhatsAppService:
                 }
                 mime_type = mime_type_map.get(file_extension, 'audio/mpeg')
                 
+                # Read file content
+                with open(media_file_path, 'rb') as file:
+                    file_content = file.read()
+                
+                # Use multipart form data for file upload
                 files = {
-                    'file': (os.path.basename(media_file_path), file, mime_type)
+                    'file': (os.path.basename(media_file_path), file_content, mime_type)
                 }
                 data = {
                     'messaging_product': 'whatsapp',
                     'type': media_type
                 }
                 
-                response = requests.post(url, headers=headers, files=files, data=data)
+                response = await self.http_client.post(
+                    url, 
+                    headers=headers, 
+                    files=files, 
+                    data=data
+                )
                 
                 print(f"🔊 Upload response status: {response.status_code}")
-                print(f"🔊 Upload response headers: {dict(response.headers)}")
                 print(f"🔊 Upload response body: {response.text}")
                 
                 if response.status_code == 200:
@@ -179,88 +204,90 @@ class MetaWhatsAppService:
                     print(f"❌ Upload failed: {response.status_code} - {response.text}")
                     return None
                     
-        except requests.exceptions.RequestException as e:
-            print(f"❌ Error uploading media: {e}")
-            return None
-        except FileNotFoundError:
-            print(f"❌ Media file not found: {media_file_path}")
-            return None
+            except httpx.HTTPError as e:
+                print(f"❌ Error uploading media: {e}")
+                return None
+            except FileNotFoundError:
+                print(f"❌ Media file not found: {media_file_path}")
+                return None
     
-    def send_media_by_id(self, to_number: str, media_id: str, media_type: str = "audio") -> bool:
-        """Send media message using media ID"""
-        try:
-            url = f"{self.base_url}/messages"
-            headers = {
-                "Authorization": f"Bearer {self.access_token}",
-                "Content-Type": "application/json"
-            }
-            
-            data = {
-                "messaging_product": "whatsapp",
-                "to": to_number,
-                "type": media_type,
-                media_type: {
-                    "id": media_id
+    async def send_media_by_id(self, to_number: str, media_id: str, media_type: str = "audio") -> bool:
+        """Send media message using media ID (async)"""
+        async with self.api_semaphore:
+            try:
+                url = f"{self.base_url}/messages"
+                headers = {
+                    "Authorization": f"Bearer {self.access_token}",
+                    "Content-Type": "application/json"
                 }
-            }
-            
-            response = requests.post(url, headers=headers, json=data)
-            
-            print(f"📤 Media send response status: {response.status_code}")
-            print(f"📤 Media send response headers: {dict(response.headers)}")
-            print(f"📤 Media send response body: {response.text}")
-            
-            if response.status_code == 200:
-                print(f"✅ Media message sent to {to_number}")
-                return True
-            else:
-                print(f"❌ Media send error: {response.status_code} - {response.text}")
+                
+                data = {
+                    "messaging_product": "whatsapp",
+                    "to": to_number,
+                    "type": media_type,
+                    media_type: {
+                        "id": media_id
+                    }
+                }
+                
+                response = await self.http_client.post(url, headers=headers, json=data)
+                
+                print(f"📤 Media send response status: {response.status_code}")
+                print(f"📤 Media send response body: {response.text}")
+                
+                if response.status_code == 200:
+                    print(f"✅ Media message sent to {to_number}")
+                    return True
+                else:
+                    print(f"❌ Media send error: {response.status_code} - {response.text}")
+                    return False
+                
+            except httpx.HTTPError as e:
+                print(f"❌ Error sending media by ID: {e}")
                 return False
-            
-        except requests.exceptions.RequestException as e:
-            print(f"❌ Error sending media by ID: {e}")
-            return False
     
-    def get_media_url(self, media_id: str) -> Optional[str]:
-        """Get media URL from media ID"""
-        try:
-            url = f"https://graph.facebook.com/{media_id}"
-            headers = {
-                "Authorization": f"Bearer {self.access_token}"
-            }
-            
-            response = requests.get(url, headers=headers)
-            response.raise_for_status()
-            
-            result = response.json()
-            return result.get('url')
-            
-        except requests.exceptions.RequestException as e:
-            print(f"❌ Error getting media URL: {e}")
-            return None
+    async def get_media_url(self, media_id: str) -> Optional[str]:
+        """Get media URL from media ID (async)"""
+        async with self.api_semaphore:
+            try:
+                url = f"https://graph.facebook.com/{media_id}"
+                headers = {
+                    "Authorization": f"Bearer {self.access_token}"
+                }
+                
+                response = await self.http_client.get(url, headers=headers)
+                response.raise_for_status()
+                
+                result = response.json()
+                return result.get('url')
+                
+            except httpx.HTTPError as e:
+                print(f"❌ Error getting media URL: {e}")
+                return None
     
-    def download_media(self, media_url: str, file_path: str) -> bool:
-        """Download media from WhatsApp servers"""
-        try:
-            headers = {
-                "Authorization": f"Bearer {self.access_token}"
-            }
-            
-            response = requests.get(media_url, headers=headers)
-            response.raise_for_status()
-            
-            with open(file_path, 'wb') as file:
-                file.write(response.content)
-            
-            print(f"✅ Media downloaded to {file_path}")
-            return True
-            
-        except requests.exceptions.RequestException as e:
-            print(f"❌ Error downloading media: {e}")
-            return False
-        except IOError as e:
-            print(f"❌ Error writing file: {e}")
-            return False
+    async def download_media(self, media_url: str, file_path: str) -> bool:
+        """Download media from WhatsApp servers (async)"""
+        async with self.api_semaphore:
+            try:
+                headers = {
+                    "Authorization": f"Bearer {self.access_token}"
+                }
+                
+                response = await self.http_client.get(media_url, headers=headers)
+                response.raise_for_status()
+                
+                with open(file_path, 'wb') as file:
+                    file.write(response.content)
+                
+                print(f"✅ Media downloaded to {file_path}")
+                return True
+                
+            except httpx.HTTPError as e:
+                print(f"❌ Error downloading media: {e}")
+                return False
+            except IOError as e:
+                print(f"❌ Error writing file: {e}")
+                return False
     
     def verify_webhook(self, mode: str, token: str, challenge: str) -> Optional[str]:
         """Verify webhook for WhatsApp"""
@@ -407,7 +434,7 @@ class MetaWhatsAppService:
             
             # Mark message as read (non-blocking)
             if message_id:
-                self.mark_message_as_read(message_id)
+                await self.mark_message_as_read(message_id)
             
             # Process the message based on type
             message_type = message_data.get('type', 'text')
@@ -502,7 +529,7 @@ class MetaWhatsAppService:
             
             # Download the voice message
             print(f"🎵 Getting media URL for ID: {media_id}")
-            media_url = self.get_media_url(media_id)
+            media_url = await self.get_media_url(media_id)
             print(f"🎵 Media URL: {media_url}")
             
             if not media_url:
@@ -513,7 +540,7 @@ class MetaWhatsAppService:
             import tempfile
             import os
             with tempfile.NamedTemporaryFile(delete=False, suffix=".ogg") as tmp_file:
-                if self.download_media(media_url, tmp_file.name):
+                if await self.download_media(media_url, tmp_file.name):
                     print(f"✅ Downloaded voice message to {tmp_file.name}")
                     
                     # Process voice message using your voice processing
@@ -536,7 +563,7 @@ class MetaWhatsAppService:
                         print(f"🤖 AI Response: {response_text}")
                         
                         # Convert response to speech
-                        audio_file = voice_processor.text_to_speech(response_text)
+                        audio_file = await voice_processor.text_to_speech(response_text)
                         print(f"🔊 Generated audio type: {type(audio_file)}")
                         print(f"🔊 Generated audio preview: {str(audio_file)[:100]}...")
                         
@@ -544,9 +571,9 @@ class MetaWhatsAppService:
                         if audio_file and isinstance(audio_file, str) and audio_file.endswith(('.wav', '.mp3', '.ogg')):
                             # Upload audio to WhatsApp
                             print(f"🔊 Uploading audio file: {audio_file}")
-                            uploaded_media_id = self.upload_media(audio_file, "audio")
+                            uploaded_media_id = await self.upload_media(audio_file, "audio")
                             if uploaded_media_id:
-                                self.send_media_by_id(from_number, uploaded_media_id, "audio")
+                                await self.send_media_by_id(from_number, uploaded_media_id, "audio")
                                 print(f"✅ Sent voice response to {from_number}")
                             else:
                                 print(f"❌ Failed to upload audio, no response sent")
@@ -564,8 +591,9 @@ class MetaWhatsAppService:
             traceback.print_exc()
     
     
-    def mark_message_as_read(self, message_id: str) -> bool:
-        """Mark a message as read"""
+    async def mark_message_as_read(self, message_id: str) -> bool:
+        """Mark a message as read (async)"""
+        # Don't block on read receipts - fire and forget
         try:
             url = f"{self.base_url}/messages"
             headers = {
@@ -579,15 +607,23 @@ class MetaWhatsAppService:
                 "message_id": message_id
             }
             
-            response = requests.post(url, headers=headers, json=data)
-            response.raise_for_status()
-            
-            print(f"✅ Message {message_id} marked as read")
+            # Use asyncio.create_task to not block
+            asyncio.create_task(self._mark_read_async(url, headers, data, message_id))
             return True
             
-        except requests.exceptions.RequestException as e:
-            print(f"❌ Error marking message as read: {e}")
+        except Exception as e:
+            print(f"❌ Error scheduling mark as read: {e}")
             return False
+    
+    async def _mark_read_async(self, url: str, headers: dict, data: dict, message_id: str):
+        """Async helper to mark message as read"""
+        async with self.api_semaphore:
+            try:
+                response = await self.http_client.post(url, headers=headers, json=data)
+                response.raise_for_status()
+                print(f"✅ Message {message_id} marked as read")
+            except httpx.HTTPError as e:
+                print(f"❌ Error marking message as read: {e}")
     
 
 # Global instance
