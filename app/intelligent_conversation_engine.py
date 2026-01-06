@@ -52,18 +52,18 @@ class IntelligentConversationEngine:
                 await self._extract_information_intelligently(patient_text, patient_data, current_question)
                 
                 # Special handling for question 5 (pregnancy number) - extract pregnancy number and determine if first pregnancy
-                if current_question_index == 4:  # Question 5 is index 4 (0-based)
+                if current_question_index == 1:  # Question 5 is index 1 (0-based, after removing questions 1, 2, and 3)
                     await self._extract_pregnancy_number(patient_text, patient_data)
                 
                 # Special handling for question 6 (miscarriages/deaths) - only asked if 2nd+ pregnancy
                 # This is handled by _get_next_valid_question_index condition
                 
                 # Special handling for question 7 (LMP) - check if date was remembered
-                if current_question_index == 6:  # Question 7 is index 6 (0-based)
+                if current_question_index == 3:  # Question 7 is index 3 (0-based, after removing questions 1, 2, and 3)
                     await self._extract_lmp_info(patient_text, patient_data)
                 
                 # Special handling for question 9 (pregnancy month) - extract month and determine trimester
-                if current_question_index == 8:  # Question 9 is index 8 (0-based)
+                if current_question_index == 5:  # Question 9 is index 5 (0-based, after removing questions 1, 2, and 3)
                     await self._extract_pregnancy_month(patient_text, patient_data)
                 
                 # Special handling for question 16 (anatomy scan) - check for twins
@@ -71,13 +71,25 @@ class IntelligentConversationEngine:
                 if current_question_id == 16:  # Question 16 (anatomy scan)
                     await self._check_for_twins(patient_text, patient_data)
                 
-                # Special handling for question 24 (recent scan) - check for twins
+                # Special handling for question 24 (recent scan) - check for twins and handle follow-up
                 if current_question_id == 24:  # Question 24 (recent scan)
                     await self._check_for_twins(patient_text, patient_data)
-                
-                # Get next valid question index (skip obstetric history if first pregnancy, skip question 48 if no twins, skip 23-30 if first trimester)
-                next_index = self._get_next_valid_question_index(current_question_index + 1, patient_data)
-                patient_data["current_question_index"] = next_index
+                    # Check if patient said yes to having a recent scan - if yes, ask follow-up
+                    await self._handle_recent_scan_followup(patient_text, patient_data)
+                    
+                    # If follow-up is needed, don't increment question index yet
+                    current_pregnancy = patient_data.get("current_pregnancy", {})
+                    if current_pregnancy.get("recent_scan_followup_needed", False):
+                        # Keep current index, will ask follow-up in questionnaire phase
+                        patient_data["current_question_index"] = current_question_index
+                    else:
+                        # No follow-up needed, move to next question
+                        next_index = self._get_next_valid_question_index(current_question_index + 1, patient_data)
+                        patient_data["current_question_index"] = next_index
+                else:
+                    # Get next valid question index (skip obstetric history if first pregnancy, skip question 48 if no twins, skip 23-30 if first trimester)
+                    next_index = self._get_next_valid_question_index(current_question_index + 1, patient_data)
+                    patient_data["current_question_index"] = next_index
             
             # Determine next phase and response
             result = await self._determine_next_response(patient_text, patient_data)
@@ -103,7 +115,7 @@ class IntelligentConversationEngine:
                     patient_data = self._initialize_patient_data(patient_id)
             
             return {
-                "response_text": f"معذرت، میں آپ کی بات سمجھ نہیں سکا۔ براہ کرم دوبارہ کوشش کریں۔\n\n(Technical: {str(e)})",
+                "response_text": f"معذرت، میں آپ کی بات سمجھ نہیں سکی۔ براہ کرم دوبارہ کوشش کریں۔\n\n(Technical: {str(e)})",
                 "next_phase": patient_data.get("current_phase", "onboarding"),
                 "patient_data": patient_data,
                 "action": "continue_conversation"
@@ -113,9 +125,7 @@ class IntelligentConversationEngine:
         """Initialize all structured questions based on updated document"""
         return [
             # Patient Profile (Questions 1-8 from document)
-            {"id": 1, "text": "Aapka pura naam kya hai?", "field": "demographics.name", "category": "patient_profile"},
-            {"id": 2, "text": "Aap kya kaam karti hain?", "field": "demographics.occupation", "category": "patient_profile"},
-            {"id": 3, "text": "Aapki umar kitni hai?", "field": "demographics.age", "category": "patient_profile"},
+            # Note: Question 1 (name) and Question 3 (age) are collected during onboarding, so not included here
             {"id": 4, "text": "Shaadi ko kitna arsa ho gaya hai? Khandan mein hoyi hai ya baahir?", "field": "demographics.marriage_info", "category": "patient_profile"},
             {"id": 5, "text": "Apka kitnwa hamal hai?", "field": "demographics.pregnancy_number", "category": "patient_profile"},
             {"id": 6, "text": "Koi hamal zaya tu nhi hua ya koi bacha fout tu nahi hua?", "field": "demographics.miscarriages_deaths", "category": "patient_profile", "condition": "if_2nd_or_more_pregnancy"},
@@ -130,7 +140,7 @@ class IntelligentConversationEngine:
             {"id": 10, "text": "Hamal khudi hua tha ya dawai khani pari?", "field": "current_pregnancy.conception_method", "category": "first_trimester"},
             {"id": 11, "text": "Aapko hamal ka kesay pata chala?", "field": "current_pregnancy.discovery_method", "category": "first_trimester"},
             {"id": 12, "text": "Shuru ke dino mein ultrasound karaya tha?", "field": "current_pregnancy.early_ultrasound", "category": "first_trimester"},
-            {"id": 13, "text": "Aapne hamal se pehle aur shuru ke dino mein folic acid li h?", "field": "current_pregnancy.folic_acid", "category": "first_trimester"},
+            {"id": 13, "text": "Aapne hamal se pehle aur shuru ke dino mein foliic acid li h?", "field": "current_pregnancy.folic_acid", "category": "first_trimester"},
             {"id": 14, "text": "Kia apko shoro k dino men ulti, bukhar ya khoon prnay ki shikayat hui ho?", "field": "current_pregnancy.early_symptoms", "category": "first_trimester"},
             
             # Current Pregnancy - Second and Third Trimesters (8 questions)
@@ -140,18 +150,18 @@ class IntelligentConversationEngine:
             {"id": 18, "text": "khoon pishaap ke test hoye hain?", "field": "current_pregnancy.blood_urine_tests", "category": "second_third_trimester"},
             {"id": 19, "text": "If yes, Hb kitni hai? If no, kya aapko thakawat, saans ka phoolna, ya dil ki dharkan tez hone ka masla hota hai?", "field": "current_pregnancy.hb_level_symptoms", "category": "second_third_trimester", "condition": "if_blood_test_answered"},
             {"id": 20, "text": "Aapke sugar aur blood pressure ke test hoye thay? Koi masla tou nahi aya?", "field": "current_pregnancy.sugar_bp_tests", "category": "second_third_trimester"},
-            {"id": 21, "text": "If yes, aapko is masle ke liye koi dawai khaani parhti hai?", "field": "current_pregnancy.sugar_bp_medication", "category": "second_third_trimester", "condition": "if_sugar_bp_issue"},
+            {"id": 21, "text": "aapko is masle ke liye koi dawai khaani parhti hai?", "field": "current_pregnancy.sugar_bp_medication", "category": "second_third_trimester", "condition": "if_sugar_bp_issue"},
             {"id": 22, "text": "Aap taqat ki dawain le rahi hain?", "field": "current_pregnancy.supplements", "category": "second_third_trimester"},
             {"id": 23, "text": "Kabhi khoon ya pani prnay ki shikayat hui ho", "field": "current_pregnancy.bleeding_water_leakage", "category": "second_third_trimester"},
-            {"id": 24, "text": "If in the third trimester, abhi ka koi recent scan hai apke paas? If she said yes tu ask koi masla tu nahi hai.", "field": "current_pregnancy.recent_scan", "category": "second_third_trimester", "condition": "if_third_trimester"},
+            {"id": 24, "text": "abhi ka koi recent scan hai apke paas?", "field": "current_pregnancy.recent_scan", "category": "second_third_trimester", "condition": "if_third_trimester"},
             
             # Obstetric History - For one child (10 questions)
             {"id": 25, "text": "Bache ki umer kiya hai?", "field": "obstetric_history.single_child.age", "category": "obstetric_history_one_child"},
             {"id": 26, "text": "Larka hai ya larki?", "field": "obstetric_history.single_child.gender", "category": "obstetric_history_one_child"},
             {"id": 27, "text": "Poore dino per paida hoa tha?", "field": "obstetric_history.single_child.full_term", "category": "obstetric_history_one_child"},
-            {"id": 28, "text": "Operation ya normal", "field": "obstetric_history.single_child.delivery_method", "category": "obstetric_history_one_child"},
-            {"id": 29, "text": "If normal: Dardien khudi lagi thi ya lagwani pari thi? Kitna waqt laga bache ki padaish mein?", "field": "obstetric_history.single_child.normal_delivery_details", "category": "obstetric_history_one_child", "condition": "if_normal_delivery"},
-            {"id": 30, "text": "If operation: Kis wajah se hua tha?", "field": "obstetric_history.single_child.operation_reason", "category": "obstetric_history_one_child", "condition": "if_operation"},
+            {"id": 28, "text": "Operation hua tha ya normal delivery?", "field": "obstetric_history.single_child.delivery_method", "category": "obstetric_history_one_child"},
+            {"id": 29, "text": "Dardien khudi lagi thi ya lagwani pari thi? Kitna waqt laga bache ki padaish mein?", "field": "obstetric_history.single_child.normal_delivery_details", "category": "obstetric_history_one_child", "condition": "if_normal_delivery"},
+            {"id": 30, "text": "Kis wajah se hua tha?", "field": "obstetric_history.single_child.operation_reason", "category": "obstetric_history_one_child", "condition": "if_operation"},
             {"id": 31, "text": "Kahan pr paidaish hui", "field": "obstetric_history.single_child.delivery_location", "category": "obstetric_history_one_child"},
             {"id": 32, "text": "Padaish ke baad apko ya bache ko masla tou nahi hoa?", "field": "obstetric_history.single_child.post_delivery_complications", "category": "obstetric_history_one_child"},
             {"id": 33, "text": "Bacha ab theek hai? School jata hai?", "field": "obstetric_history.single_child.current_status", "category": "obstetric_history_one_child"},
@@ -174,7 +184,7 @@ class IntelligentConversationEngine:
             
             # Past Medical History (2 questions)
             {"id": 46, "text": "Kiya ap kisi maslay k liye koi dawayi khaa rahi hain?", "field": "past_medical_history.current_medications", "category": "past_medical_history"},
-            {"id": 47, "text": "Kabhi sugar/Blood pressure/ dama/TB/Yarqan/dil ya gurdon ka masla tou nahin hua?", "field": "past_medical_history.previous_conditions", "category": "past_medical_history"},
+            {"id": 47, "text": "Kabhi sugar/Blood pressure/ dama/TB/Yarqan/dil ya gurdon ka masla tou nahin hua? yan koi aur masla jo aap batana chahein?", "field": "past_medical_history.previous_conditions", "category": "past_medical_history"},
             
             # Surgical History (1 question)
             {"id": 48, "text": "Apka kabhi kisi wajah se koi operation tou nae hua?", "field": "surgical_history.operations", "category": "surgical_history"},
@@ -196,8 +206,6 @@ class IntelligentConversationEngine:
             "patient_id": patient_id,
             "demographics": {
                 "name": "",
-                "id_card_number": "",
-                "occupation": "",
                 "age": "",
                 "phone_number": "",
                 "marriage_info": "",
@@ -395,92 +403,12 @@ class IntelligentConversationEngine:
             return await self._handle_general_response(patient_text, patient_data)
     
     async def _handle_onboarding_phase(self, patient_text: str, patient_data: Dict[str, Any]) -> Dict[str, Any]:
-        """Handle onboarding phase - collect CNIC first, then name, age, phone"""
+        """Handle onboarding phase - collect name, age, phone"""
         
         demographics = patient_data.get("demographics", {})
         patient_text_lower = patient_text.lower().strip()
         
-        # Step 1: Collect CNIC first (as per document)
-        if not demographics.get("id_card_number"):
-            # Extract CNIC number (13 digits, may have dashes or spaces)
-            cnic_patterns = [
-                r"cnic[:\s]*([\d\s\-]{13,19})",
-                r"shanakhti[:\s]*([\d\s\-]{13,19})",
-                r"([\d]{5}[\s\-]?[\d]{7}[\s\-]?[\d]{1})",  # Standard CNIC format: 12345-1234567-1
-                r"([\d]{13})",  # Just 13 digits
-                r"([\d]{4}[\s\-]?[\d]{4}[\s\-]?[\d]{4}[\s\-]?[\d]{1})",  # Alternative format
-                r"([\d\s\-]{13,19})"  # Any 13-19 digit sequence with spaces/dashes
-            ]
-            
-            extracted_cnic = None
-            for pattern in cnic_patterns:
-                match = re.search(pattern, patient_text, re.IGNORECASE)
-                if match:
-                    extracted_cnic = re.sub(r'[\s\-\+]', '', match.group(1).strip())
-                    if len(extracted_cnic) == 13 and extracted_cnic.isdigit():  # Valid CNIC length
-                        demographics["id_card_number"] = extracted_cnic
-                        print(f"✅ Extracted CNIC via pattern: {extracted_cnic}")
-                        break
-            
-            # If pattern matching failed, try AI extraction
-            if not demographics.get("id_card_number") and settings.openai_api_key and len(settings.openai_api_key) > 10:
-                cnic_extraction_prompt = f"""
-                Extract CNIC (ID card number) from this Urdu/English response: "{patient_text}"
-                
-                CNIC is a 13-digit number in Pakistan. It may be spoken as:
-                - Individual digits (e.g., "1 2 3 4 5 1 2 3 4 5 6 7 1")
-                - With dashes (e.g., "12345-1234567-1")
-                - As a continuous number (e.g., "1234512345671")
-                - In Urdu words for numbers
-                
-                Look for:
-                - Words like "cnic", "shanakhti", "identity card", "id card"
-                - 13-digit numbers
-                - Numbers mentioned after "cnic" or "shanakhti"
-                
-                Return ONLY the 13-digit CNIC number (no dashes, no spaces) as JSON: {{"id_card_number": "1234512345671"}}
-                If no CNIC found, return: {{"id_card_number": ""}}
-                """
-                
-                try:
-                    response = openai.chat.completions.create(
-                        model="gpt-4",
-                        messages=[{"role": "user", "content": cnic_extraction_prompt}],
-                        temperature=0.1
-                    )
-                    
-                    response_text = response.choices[0].message.content.strip()
-                    if "{" in response_text:
-                        start_idx = response_text.find("{")
-                        end_idx = response_text.rfind("}") + 1
-                        extracted = json.loads(response_text[start_idx:end_idx])
-                        
-                        cnic_value = extracted.get("id_card_number", "").strip()
-                        # Clean the CNIC (remove dashes, spaces)
-                        cnic_value = re.sub(r'[\s\-\+]', '', cnic_value)
-                        if len(cnic_value) == 13 and cnic_value.isdigit():
-                            demographics["id_card_number"] = cnic_value
-                            print(f"✅ Extracted CNIC via AI: {cnic_value}")
-                except Exception as e:
-                    print(f"⚠️ CNIC AI extraction failed: {e}")
-            
-            if not demographics.get("id_card_number"):
-                # Ask for CNIC
-                if not patient_data.get("has_greeted"):
-                    patient_data["has_greeted"] = True
-                    response_text = "وعلیکم السلام! میں آپ کی گائناکالوجی کی مدد کرنے کے لئے ہوں۔ براہ کرم اپنا یا اپنے شوہر کا CNIC نمبر بتائیں تاکہ ہم آپ سے رابطہ کر سکیں۔"
-                else:
-                    response_text = "براہ کرم اپنا یا اپنے شوہر کا CNIC نمبر بتائیں۔"
-                
-                patient_data["demographics"] = demographics
-                return {
-                    "response_text": response_text,
-                    "next_phase": "onboarding",
-                    "patient_data": patient_data,
-                    "action": "continue_conversation"
-                }
-        
-        # Step 2: Collect name, age, phone (after CNIC is collected)
+        # Collect name, age, phone
         # Name patterns
         name_patterns = [
             r"mera naam ([\w\s]+) hai",
@@ -565,8 +493,6 @@ class IntelligentConversationEngine:
             missing_fields.append("age")
         if not demographics.get("phone_number"):
             missing_fields.append("phone_number")
-        if not demographics.get("id_card_number"):
-            missing_fields.append("id_card_number")
         
         if missing_fields and settings.openai_api_key and len(settings.openai_api_key) > 10:
             extraction_prompt = f"""
@@ -578,18 +504,13 @@ class IntelligentConversationEngine:
             - Name (if mentioned) - look for words like "naam", "name", "mera naam", "my name"
             - Age (if mentioned) - look for numbers with "umar", "age", "saal", "years"
             - Phone number (if mentioned) - look for digits in phone format (usually 10-12 digits)
-            - CNIC/ID card number (if mentioned) - look for 13-digit number, may be spoken as individual digits or with dashes
             
-            Return JSON: {{"name": "", "age": "", "phone_number": "", "id_card_number": ""}}
+            Return JSON: {{"name": "", "age": "", "phone_number": ""}}
             
             Examples:
             - "mera naam sadia hai" → {{"name": "sadia"}}
             - "meri umar 25 hai" → {{"age": "25"}}
             - "mera phone 923001234567 hai" → {{"phone_number": "923001234567"}}
-            - "mera cnic 12345-1234567-1 hai" → {{"id_card_number": "1234512345671"}}
-            - "shanakhti 1 2 3 4 5 1 2 3 4 5 6 7 1" → {{"id_card_number": "1234512345671"}}
-            
-            For CNIC: Return only the 13 digits (no dashes, no spaces)
             """
             
             try:
@@ -614,11 +535,6 @@ class IntelligentConversationEngine:
                     if extracted.get("phone_number") and not demographics.get("phone_number"):
                         demographics["phone_number"] = extracted["phone_number"]
                         print(f"✅ Extracted phone via AI: {extracted['phone_number']}")
-                    if extracted.get("id_card_number") and not demographics.get("id_card_number"):
-                        cnic_value = re.sub(r'[\s\-\+]', '', str(extracted["id_card_number"]).strip())
-                        if len(cnic_value) == 13 and cnic_value.isdigit():
-                            demographics["id_card_number"] = cnic_value
-                            print(f"✅ Extracted CNIC via AI: {cnic_value}")
             except Exception as e:
                 print(f"⚠️ AI extraction failed: {e}")
         
@@ -627,15 +543,12 @@ class IntelligentConversationEngine:
         
         # Debug: Print current demographics status
         print(f"📊 Current demographics status:")
-        print(f"  CNIC: {demographics.get('id_card_number', 'NOT SET')}")
         print(f"  Name: {demographics.get('name', 'NOT SET')}")
         print(f"  Age: {demographics.get('age', 'NOT SET')}")
         print(f"  Phone: {demographics.get('phone_number', 'NOT SET')}")
         
-        # Check what's missing (CNIC is already checked above, so we check name, age, phone here)
+        # Check what's missing
         missing_info = []
-        if not demographics.get("id_card_number") or demographics.get("id_card_number") == "":
-            missing_info.append("CNIC نمبر")
         if not demographics.get("name") or demographics.get("name") == "":
             missing_info.append("نام")
         if not demographics.get("age") or demographics.get("age") == "":
@@ -659,7 +572,7 @@ class IntelligentConversationEngine:
             }
         else:
             # Onboarding complete, move to problem collection
-            print(f"✅ Onboarding complete! CNIC: {demographics.get('id_card_number')}, Name: {demographics.get('name')}, Age: {demographics.get('age')}, Phone: {demographics.get('phone_number')}")
+            print(f"✅ Onboarding complete! Name: {demographics.get('name')}, Age: {demographics.get('age')}, Phone: {demographics.get('phone_number')}")
             patient_data["current_phase"] = "problem_collection"
             name = demographics.get("name", "صاحبہ")
             response_text = f"{name} صاحبہ، آپ کا آن بورڈنگ مکمل ہو گیا ہے۔ اب مجھے بتائیں کہ آپ کو کیا مسئلہ ہے؟"
@@ -692,25 +605,25 @@ class IntelligentConversationEngine:
                 # Get first question
                 if patient_data["current_question_index"] < len(self.questions):
                     first_question = self.questions[patient_data["current_question_index"]]["text"]
-                    response_text = f"شکریہ۔ اب میں آپ سے کچھ ضروری سوالات پوچھوں گا۔\n\n{first_question}"
+                    response_text = f"شکریہ۔ اب میں آپ سے کچھ ضروری سوالات پوچھوں گی۔\n\n{first_question}"
                 else:
-                    response_text = "شکریہ۔ اب میں آپ سے کچھ ضروری سوالات پوچھوں گا۔"
+                    response_text = "شکریہ۔ اب میں آپ سے کچھ ضروری سوالات پوچھوں گی۔"
                 
-                return {
-                    "response_text": response_text,
+            return {
+                "response_text": response_text,
                     "next_phase": "questionnaire",
-                    "patient_data": patient_data,
-                    "action": "continue_conversation"
-                }
-            else:
+                "patient_data": patient_data,
+                "action": "continue_conversation"
+            }
+        else:
                 # Ask for problem if not collected yet
                 response_text = "براہ کرم مجھے بتائیں کہ آپ کو کیا مسئلہ ہے؟ آپ کی کیا تکلیف ہے؟"
-                return {
-                    "response_text": response_text,
+            return {
+                "response_text": response_text,
                     "next_phase": "problem_collection",
-                    "patient_data": patient_data,
-                    "action": "continue_conversation"
-                }
+                "patient_data": patient_data,
+                "action": "continue_conversation"
+            }
         else:
             # Problem already collected, move to questionnaire
             patient_data["current_phase"] = "questionnaire"
@@ -961,6 +874,40 @@ class IntelligentConversationEngine:
         except Exception as e:
             print(f"Error checking for twins: {e}")
     
+    async def _handle_recent_scan_followup(self, patient_text: str, patient_data: Dict[str, Any]):
+        """Handle follow-up question for Q24 (recent scan) - if yes, ask about any problems"""
+        
+        current_pregnancy = patient_data.get("current_pregnancy", {})
+        patient_text_lower = patient_text.lower().strip()
+        
+        # Check if patient said yes to having a recent scan
+        yes_keywords = ["haan", "yes", "hain", "hai", "hoga", "karaya", "karwaya", "karwaya hai", "karaya hai", "hain", "kiya", "kiya hai"]
+        no_keywords = ["nahi", "no", "na", "nhi", "nahi hai", "na hai"]
+        
+        # Check the extracted value first (from _extract_information_intelligently)
+        recent_scan_answer = current_pregnancy.get("recent_scan", "").strip().lower()
+        
+        # Determine if answer is yes
+        has_recent_scan = False
+        if recent_scan_answer:
+            # Check extracted value
+            has_recent_scan = any(keyword in recent_scan_answer for keyword in yes_keywords) and not any(keyword in recent_scan_answer for keyword in no_keywords)
+        else:
+            # Check original text if extraction hasn't happened yet
+            has_recent_scan = any(keyword in patient_text_lower for keyword in yes_keywords) and not any(keyword in patient_text_lower for keyword in no_keywords)
+        
+        # If patient said yes and we haven't asked the follow-up yet
+        if has_recent_scan and not current_pregnancy.get("recent_scan_followup_asked", False):
+            # Set flag to ask follow-up question
+            current_pregnancy["recent_scan_followup_needed"] = True
+            current_pregnancy["recent_scan_followup_asked"] = False  # Will be set to True after asking
+            print(f"✅ Patient has recent scan, will ask follow-up question")
+        else:
+            # If they said no or we already asked, clear the flag
+            current_pregnancy["recent_scan_followup_needed"] = False
+        
+        patient_data["current_pregnancy"] = current_pregnancy
+    
     def _has_twins(self, patient_data: Dict[str, Any]) -> bool:
         """Check if patient has twins (current pregnancy or previous)"""
         
@@ -1148,8 +1095,12 @@ class IntelligentConversationEngine:
                 delivery_method = single_child.get("delivery_method", "").strip().lower()
                 if not delivery_method:
                     continue  # Skip if Q28 (delivery method) not answered yet
-                if "normal" in delivery_method or "operation" not in delivery_method and "c-section" not in delivery_method:
-                    continue  # Skip if not operation
+                # Skip if normal delivery (Q30 is only for operations)
+                if "normal" in delivery_method:
+                    continue
+                # Skip if neither operation nor c-section mentioned
+                if "operation" not in delivery_method and "c-section" not in delivery_method:
+                    continue
             
             # Condition 12: Question 39 (normal delivery for multiple) - only if any normal delivery
             if question_id == 39:
@@ -1166,8 +1117,9 @@ class IntelligentConversationEngine:
                 delivery_methods = multiple_children.get("delivery_methods", "").strip().lower()
                 if not delivery_methods:
                     continue  # Skip if Q37 (delivery methods) not answered yet
+                # Skip if neither operation nor c-section mentioned
                 if "operation" not in delivery_methods and "c-section" not in delivery_methods:
-                    continue  # Skip if no operation
+                    continue
             
             return i
         
@@ -1177,7 +1129,35 @@ class IntelligentConversationEngine:
     async def _handle_questionnaire_phase(self, patient_text: str, patient_data: Dict[str, Any]) -> Dict[str, Any]:
         """Handle questionnaire phase - ask all 60 questions sequentially, skipping irrelevant ones"""
         
-        # Note: Extraction and index increment already happened in process_patient_response
+        # Check if we need to ask follow-up question for Q24 (recent scan)
+        current_pregnancy = patient_data.get("current_pregnancy", {})
+        if current_pregnancy.get("recent_scan_followup_needed", False):
+            if not current_pregnancy.get("recent_scan_followup_asked", False):
+                # This is the first time - ask the follow-up question
+                current_pregnancy["recent_scan_followup_asked"] = True
+                patient_data["current_pregnancy"] = current_pregnancy
+                response_text = "Koi masla tu nahi hai?"
+                
+                return {
+                    "response_text": response_text,
+                    "next_phase": "questionnaire",
+                    "patient_data": patient_data,
+                    "action": "continue_conversation"
+                }
+            else:
+                # Follow-up was already asked, now store the answer and move to next question
+                current_pregnancy["recent_scan_followup_answer"] = patient_text.strip()
+                current_pregnancy["recent_scan_followup_needed"] = False
+                current_pregnancy["recent_scan_followup_asked"] = False
+                patient_data["current_pregnancy"] = current_pregnancy
+                print(f"✅ Stored follow-up answer for recent scan: {patient_text}")
+                
+                # Now move to next question
+                current_question_index = patient_data.get("current_question_index", 0)
+                next_index = self._get_next_valid_question_index(current_question_index + 1, patient_data)
+                patient_data["current_question_index"] = next_index
+        
+        # Note: Extraction and index increment already happened in process_patient_response (unless we handled follow-up above)
         current_question_index = patient_data.get("current_question_index", 0)
         
         # Ensure we have a valid question index (skip obstetric history if needed)
@@ -1188,7 +1168,7 @@ class IntelligentConversationEngine:
         if current_question_index >= len(self.questions):
             # All questions answered, move to assessment
             patient_data["current_phase"] = "assessment"
-            response_text = "شکریہ! تمام سوالات مکمل ہو گئے ہیں۔ اب میں آپ کا طبی جائزہ تیار کر رہا ہوں۔"
+            response_text = "شکریہ! تمام سوالات مکمل ہو گئے ہیں۔ اب میں آپ کا طبی جائزہ تیار کر رہی ہوں۔"
             
             return {
                 "response_text": response_text,
@@ -1251,7 +1231,14 @@ class IntelligentConversationEngine:
         """Generate medical assessment using AI based on all collected structured data"""
         
         assessment_prompt = f"""
-        You are a SENIOR PAKISTANI GYNECOLOGIST performing a comprehensive medical assessment.
+        You are a FEMALE SENIOR PAKISTANI GYNECOLOGIST performing a comprehensive medical assessment.
+        
+        IMPORTANT: When responding in Urdu, use FEMALE-GENDERED verbs and forms:
+        - Use "میں کر رہی ہوں" (I am doing) not "میں کر رہا ہوں"
+        - Use "میں نے کیا" (I did) not "میں نے کیا" (same but context matters)
+        - Use "میں سمجھ سکی" (I understood) not "میں سمجھ سکا"
+        - Use "میں پوچھوں گی" (I will ask) not "میں پوچھوں گا"
+        - Always speak as a female medical professional
         
         COMPLETE PATIENT INFORMATION:
         {json.dumps(patient_data, ensure_ascii=False, indent=2)}
@@ -1291,7 +1278,7 @@ class IntelligentConversationEngine:
         Return as JSON:
         {{
             "alert_level": "red" or "yellow" or "green",
-            "assessment_summary": "brief assessment in Urdu",
+            "assessment_summary": "brief assessment in Urdu using FEMALE-GENDERED verbs",
             "clinical_impression": "likely diagnosis or condition",
             "recommendations": "what patient should do next"
         }}
@@ -1408,7 +1395,7 @@ class IntelligentConversationEngine:
             ## Gynecological Consultation Report
             
             ### 1. PATIENT DEMOGRAPHICS
-            Include: Name, Age, ID Card Number, Education Level, Area, Occupation, Phone Number, Marriage Information, Children Information, Menstrual History
+            Include: Name, Age, Phone Number, Marriage Information, Children Information, Menstrual History
             
             ### 2. PRESENTING COMPLAINT
             Chief Complaint: {emr_patient_data.get('problem_description', 'Not specified')}
