@@ -49,47 +49,53 @@ class IntelligentConversationEngine:
             # Extract information if in questionnaire phase and patient has responded
             if current_phase == "questionnaire" and current_question_index < len(self.questions) and patient_text.strip():
                 current_question = self.questions[current_question_index]
-                await self._extract_information_intelligently(patient_text, patient_data, current_question)
+                extraction_success = await self._extract_information_intelligently(patient_text, patient_data, current_question)
                 
-                # Special handling for question 5 (pregnancy number) - extract pregnancy number and determine if first pregnancy
-                if current_question_index == 1:  # Question 5 is index 1 (0-based, after removing questions 1, 2, and 3)
-                    await self._extract_pregnancy_number(patient_text, patient_data)
-                
-                # Special handling for question 6 (miscarriages/deaths) - only asked if 2nd+ pregnancy
-                # This is handled by _get_next_valid_question_index condition
-                
-                # Special handling for question 7 (LMP) - check if date was remembered
-                if current_question_index == 3:  # Question 7 is index 3 (0-based, after removing questions 1, 2, and 3)
-                    await self._extract_lmp_info(patient_text, patient_data)
-                
-                # Special handling for question 9 (pregnancy month) - extract month and determine trimester
-                if current_question_index == 5:  # Question 9 is index 5 (0-based, after removing questions 1, 2, and 3)
-                    await self._extract_pregnancy_month(patient_text, patient_data)
-                
-                # Special handling for question 16 (anatomy scan) - check for twins
-                current_question_id = current_question.get("id", 0)
-                if current_question_id == 16:  # Question 16 (anatomy scan)
-                    await self._check_for_twins(patient_text, patient_data)
-                
-                # Special handling for question 24 (recent scan) - check for twins and handle follow-up
-                if current_question_id == 24:  # Question 24 (recent scan)
-                    await self._check_for_twins(patient_text, patient_data)
-                    # Check if patient said yes to having a recent scan - if yes, ask follow-up
-                    await self._handle_recent_scan_followup(patient_text, patient_data)
+                # Only proceed with special handling and move to next question if extraction was successful
+                if extraction_success:
+                    # Special handling for question 5 (pregnancy number) - extract pregnancy number and determine if first pregnancy
+                    if current_question_index == 1:  # Question 5 is index 1 (0-based, after removing questions 1, 2, and 3)
+                        await self._extract_pregnancy_number(patient_text, patient_data)
                     
-                    # If follow-up is needed, don't increment question index yet
-                    current_pregnancy = patient_data.get("current_pregnancy", {})
-                    if current_pregnancy.get("recent_scan_followup_needed", False):
-                        # Keep current index, will ask follow-up in questionnaire phase
-                        patient_data["current_question_index"] = current_question_index
+                    # Special handling for question 6 (miscarriages/deaths) - only asked if 2nd+ pregnancy
+                    # This is handled by _get_next_valid_question_index condition
+                    
+                    # Special handling for question 7 (LMP) - check if date was remembered
+                    if current_question_index == 3:  # Question 7 is index 3 (0-based, after removing questions 1, 2, and 3)
+                        await self._extract_lmp_info(patient_text, patient_data)
+                    
+                    # Special handling for question 9 (pregnancy month) - extract month and determine trimester
+                    if current_question_index == 5:  # Question 9 is index 5 (0-based, after removing questions 1, 2, and 3)
+                        await self._extract_pregnancy_month(patient_text, patient_data)
+                    
+                    # Special handling for question 16 (anatomy scan) - check for twins
+                    current_question_id = current_question.get("id", 0)
+                    if current_question_id == 16:  # Question 16 (anatomy scan)
+                        await self._check_for_twins(patient_text, patient_data)
+                    
+                    # Special handling for question 24 (recent scan) - check for twins and handle follow-up
+                    if current_question_id == 24:  # Question 24 (recent scan)
+                        await self._check_for_twins(patient_text, patient_data)
+                        # Check if patient said yes to having a recent scan - if yes, ask follow-up
+                        await self._handle_recent_scan_followup(patient_text, patient_data)
+                        
+                        # If follow-up is needed, don't increment question index yet
+                        current_pregnancy = patient_data.get("current_pregnancy", {})
+                        if current_pregnancy.get("recent_scan_followup_needed", False):
+                            # Keep current index, will ask follow-up in questionnaire phase
+                            patient_data["current_question_index"] = current_question_index
+                        else:
+                            # No follow-up needed, move to next question
+                            next_index = self._get_next_valid_question_index(current_question_index + 1, patient_data)
+                            patient_data["current_question_index"] = next_index
                     else:
-                        # No follow-up needed, move to next question
+                        # Get next valid question index (skip obstetric history if first pregnancy, skip question 48 if no twins, skip 23-30 if first trimester)
                         next_index = self._get_next_valid_question_index(current_question_index + 1, patient_data)
                         patient_data["current_question_index"] = next_index
                 else:
-                    # Get next valid question index (skip obstetric history if first pregnancy, skip question 48 if no twins, skip 23-30 if first trimester)
-                    next_index = self._get_next_valid_question_index(current_question_index + 1, patient_data)
-                    patient_data["current_question_index"] = next_index
+                    # Extraction failed - keep current question index, will ask again in questionnaire phase
+                    patient_data["current_question_index"] = current_question_index
+                    print(f"⚠️ Extraction failed for question {current_question_index}, will ask again")
             
             # Determine next phase and response
             result = await self._determine_next_response(patient_text, patient_data)
@@ -299,11 +305,20 @@ class IntelligentConversationEngine:
             "updated_at": datetime.now().isoformat()
         }
     
-    async def _extract_information_intelligently(self, patient_text: str, patient_data: Dict[str, Any], current_question: Dict[str, Any]):
-        """Extract information from patient response and save to structured field"""
+    async def _extract_information_intelligently(self, patient_text: str, patient_data: Dict[str, Any], current_question: Dict[str, Any]) -> bool:
+        """Extract information from patient response and save to structured field. Returns True if valid answer extracted."""
         
         field_path = current_question.get("field", "")
         question_text = current_question.get("text", "")
+        
+        # Check if response is empty or just apologies/confusion
+        patient_text_lower = patient_text.lower().strip()
+        apology_keywords = ["sorry", "معذرت", "maaf", "samajh nahi aya", "سمجھ نہیں", "dubara", "دوبارہ", "nahi pata", "نہیں پتہ"]
+        is_apology_or_confusion = any(keyword in patient_text_lower for keyword in apology_keywords) and len(patient_text.strip()) < 50
+        
+        if is_apology_or_confusion:
+            print(f"⚠️ Patient response appears to be an apology/confusion, not extracting")
+            return False
         
         extraction_prompt = f"""
         You are a medical assistant extracting structured information from patient responses.
@@ -314,23 +329,34 @@ class IntelligentConversationEngine:
         
         Extract the answer from the patient's response and format it appropriately based on the field type:
         
-        - For text fields: Return the extracted text directly
-        - For boolean fields: Return true/false
-        - For numeric fields: Return the number
+        - For text fields: Return the extracted text directly (even if partial or incomplete)
+        - For boolean fields: Return true/false (infer from yes/no/positive/negative responses)
+        - For numeric fields: Return the number (extract any number mentioned)
         - For date fields: Return the date in ISO format if possible
         
-        IMPORTANT: Extract ONLY the information relevant to this specific question. Don't extract other information.
+        IMPORTANT RULES:
+        1. Be LENIENT - accept partial answers, variations, and informal responses
+        2. If the patient gives ANY relevant information, extract it (even if not perfect)
+        3. If the response is clearly an answer (not an apology or "I don't know"), extract it
+        4. Extract ONLY the information relevant to this specific question
+        5. If the response contains the answer in any form, extract it with confidence
         
         Return as JSON:
         {{
             "value": "extracted value here",
-            "confidence": "high/medium/low"
+            "confidence": "high/medium/low",
+            "is_valid_answer": true or false
         }}
         
+        Set "is_valid_answer" to:
+        - true: If the response contains an actual answer (even if partial)
+        - false: Only if the response is clearly "I don't know", "I don't remember", or just an apology
+        
         Examples:
-        - Question: "Aapki umar kitni hai?" Response: "Meri umar 25 saal hai" → {{"value": "25", "confidence": "high"}}
-        - Question: "Pishaab ka test kiya tha?" Response: "Haan, kiya tha" → {{"value": true, "confidence": "high"}}
-        - Question: "Aapka pura naam kya hai?" Response: "Mera naam Fatima hai" → {{"value": "Fatima", "confidence": "high"}}
+        - Question: "Aapki umar kitni hai?" Response: "Meri umar 25 saal hai" → {{"value": "25", "confidence": "high", "is_valid_answer": true}}
+        - Question: "Pishaab ka test kiya tha?" Response: "Haan, kiya tha" → {{"value": true, "confidence": "high", "is_valid_answer": true}}
+        - Question: "Aapka pura naam kya hai?" Response: "Fatima" → {{"value": "Fatima", "confidence": "high", "is_valid_answer": true}}
+        - Question: "Aapki umar kitni hai?" Response: "Main nahi janti" → {{"value": "", "confidence": "low", "is_valid_answer": false}}
         
         Return ONLY valid JSON.
         """
@@ -345,6 +371,8 @@ class IntelligentConversationEngine:
             response_text = response.choices[0].message.content.strip()
             
             # Extract JSON from response
+            extracted_value = None
+            is_valid_answer = True
             try:
                 if "{" in response_text and "}" in response_text:
                     start_idx = response_text.find("{")
@@ -352,19 +380,33 @@ class IntelligentConversationEngine:
                     json_text = response_text[start_idx:end_idx]
                     extracted_info = json.loads(json_text)
                     extracted_value = extracted_info.get("value", patient_text)
+                    is_valid_answer = extracted_info.get("is_valid_answer", True)
                 else:
+                    # If no JSON, use raw response as fallback
                     extracted_value = patient_text
+                    is_valid_answer = True
             except json.JSONDecodeError:
+                # If JSON parsing fails, use raw response
                 extracted_value = patient_text
+                is_valid_answer = True
             
-            # Save to structured field
-            self._save_to_field(patient_data, field_path, extracted_value)
-            print(f"✅ Saved answer to {field_path}: {extracted_value}")
+            # Only save if we got a valid answer
+            if is_valid_answer and extracted_value and str(extracted_value).strip():
+                self._save_to_field(patient_data, field_path, extracted_value)
+                print(f"✅ Saved answer to {field_path}: {extracted_value}")
+                return True
+            else:
+                print(f"⚠️ Extracted value is empty or invalid, not saving: {extracted_value}")
+                return False
             
         except Exception as e:
             print(f"Error in extraction: {e}")
-            # Fallback: save raw response
-            self._save_to_field(patient_data, field_path, patient_text)
+            # Fallback: Try to save raw response if it seems like an answer
+            if patient_text.strip() and not is_apology_or_confusion:
+                self._save_to_field(patient_data, field_path, patient_text)
+                print(f"✅ Saved raw response as fallback to {field_path}: {patient_text}")
+                return True
+            return False
     
     def _save_to_field(self, patient_data: Dict[str, Any], field_path: str, value: Any):
         """Save value to nested field path like 'demographics.name' or 'current_pregnancy.urine_test'"""
@@ -383,6 +425,26 @@ class IntelligentConversationEngine:
             
             # Set the final value
             current[parts[-1]] = value
+    
+    def _get_field_value(self, patient_data: Dict[str, Any], field_path: str) -> Any:
+        """Get value from nested field path like 'demographics.name' or 'current_pregnancy.urine_test'"""
+        parts = field_path.split(".")
+        
+        if len(parts) == 1:
+            # Top-level field
+            return patient_data.get(field_path, "")
+        else:
+            # Nested field
+            current = patient_data
+            for part in parts[:-1]:
+                if part not in current:
+                    return ""
+                current = current[part]
+                if not isinstance(current, dict):
+                    return ""
+            
+            # Get the final value
+            return current.get(parts[-1], "")
     
     async def _determine_next_response(self, patient_text: str, patient_data: Dict[str, Any]) -> Dict[str, Any]:
         """Determine the next response based on current phase and patient data"""
@@ -1183,11 +1245,24 @@ class IntelligentConversationEngine:
                 "action": "continue_conversation"
             }
         
-        # Ask the next question
+        # Ask the current question
         current_question = self.questions[current_question_index]
         question_text = current_question["text"]
         
-        response_text = question_text
+        # Check if we just tried to extract and it failed - provide helpful message
+        # Check if the field is still empty (extraction might have failed)
+        field_path = current_question.get("field", "")
+        if field_path and patient_text.strip():
+            # Check if field is empty (extraction might have failed)
+            field_value = self._get_field_value(patient_data, field_path)
+            if not field_value or str(field_value).strip() == "" or str(field_value).strip() == "None":
+                # Extraction failed, ask again with helpful message
+                response_text = f"معذرت، میں آپ کی بات سمجھ نہیں سکی۔ براہ کرم دوبارہ بتائیں:\n\n{question_text}"
+            else:
+                # Field has value, ask next question normally
+                response_text = question_text
+        else:
+            response_text = question_text
         
         return {
             "response_text": response_text,
