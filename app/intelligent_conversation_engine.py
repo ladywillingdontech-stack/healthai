@@ -609,21 +609,21 @@ class IntelligentConversationEngine:
                 else:
                     response_text = "شکریہ۔ اب میں آپ سے کچھ ضروری سوالات پوچھوں گی۔"
                 
-            return {
-                "response_text": response_text,
+                return {
+                    "response_text": response_text,
                     "next_phase": "questionnaire",
-                "patient_data": patient_data,
-                "action": "continue_conversation"
-            }
-        else:
+                    "patient_data": patient_data,
+                    "action": "continue_conversation"
+                }
+            else:
                 # Ask for problem if not collected yet
                 response_text = "براہ کرم مجھے بتائیں کہ آپ کو کیا مسئلہ ہے؟ آپ کی کیا تکلیف ہے؟"
-            return {
-                "response_text": response_text,
+                return {
+                    "response_text": response_text,
                     "next_phase": "problem_collection",
-                "patient_data": patient_data,
-                "action": "continue_conversation"
-            }
+                    "patient_data": patient_data,
+                    "action": "continue_conversation"
+                }
         else:
             # Problem already collected, move to questionnaire
             patient_data["current_phase"] = "questionnaire"
