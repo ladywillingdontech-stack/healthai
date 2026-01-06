@@ -126,7 +126,7 @@ class IntelligentConversationEngine:
         return [
             # Patient Profile (Questions 1-8 from document)
             # Note: Question 1 (name) and Question 3 (age) are collected during onboarding, so not included here
-            {"id": 4, "text": "Shaadi ko kitna arsa ho gaya hai? Khandan mein hoyi hai ya baahir?", "field": "demographics.marriage_info", "category": "patient_profile"},
+            {"id": 4, "text": "Shaadi ko kitna arsa ho gaya hai? Khandaan mein hoyi hai ya baahir?", "field": "demographics.marriage_info", "category": "patient_profile"},
             {"id": 5, "text": "Apka kitnwa hamal hai?", "field": "demographics.pregnancy_number", "category": "patient_profile"},
             {"id": 6, "text": "Koi hamal zaya tu nhi hua ya koi bacha fout tu nahi hua?", "field": "demographics.miscarriages_deaths", "category": "patient_profile", "condition": "if_2nd_or_more_pregnancy"},
             {"id": 7, "text": "Aapko mahwari kab ayi thi?", "field": "demographics.last_menstrual_period", "category": "patient_profile"},
@@ -145,7 +145,7 @@ class IntelligentConversationEngine:
             
             # Current Pregnancy - Second and Third Trimesters (8 questions)
             {"id": 15, "text": "Apko bache ki harkat hona kab mahsoos hui aur theek ho ri h?", "field": "current_pregnancy.fetal_movement", "category": "second_third_trimester"},
-            {"id": 16, "text": "Apka panchwain mahinay main bachay ki banwat wala ultrasound hua tha?", "field": "current_pregnancy.anatomy_scan", "category": "second_third_trimester"},
+            {"id": 16, "text": "Apka panchwain mahinay main bachay ki banawat wala ultrasound hua tha?", "field": "current_pregnancy.anatomy_scan", "category": "second_third_trimester"},
             {"id": 17, "text": "Kiya ap baa-qaidgi se checkup kerwati hain?", "field": "current_pregnancy.regular_checkup", "category": "second_third_trimester"},
             {"id": 18, "text": "khoon pishaap ke test hoye hain?", "field": "current_pregnancy.blood_urine_tests", "category": "second_third_trimester"},
             {"id": 19, "text": "If yes, Hb kitni hai? If no, kya aapko thakawat, saans ka phoolna, ya dil ki dharkan tez hone ka masla hota hai?", "field": "current_pregnancy.hb_level_symptoms", "category": "second_third_trimester", "condition": "if_blood_test_answered"},
@@ -633,7 +633,7 @@ class IntelligentConversationEngine:
             return await self._handle_questionnaire_phase(patient_text, patient_data)
     
     async def _extract_pregnancy_month(self, patient_text: str, patient_data: Dict[str, Any]):
-        """Extract pregnancy month from question 13 response and determine trimester"""
+        """Extract pregnancy month from question 9 response and determine trimester"""
         
         extraction_prompt = f"""
         Extract pregnancy month from this response: "{patient_text}"
@@ -693,8 +693,10 @@ class IntelligentConversationEngine:
                     trimester = "unknown"
                 
                 current_pregnancy["trimester"] = trimester
+                patient_data["current_pregnancy"] = current_pregnancy
                 
                 print(f"✅ Extracted pregnancy month: {pregnancy_month}, trimester: {trimester}")
+                print(f"✅ Updated patient_data with trimester: {trimester}")
         except Exception as e:
             print(f"Error extracting pregnancy month: {e}")
     
@@ -1050,8 +1052,12 @@ class IntelligentConversationEngine:
                 if use_multiple_children_obstetric and 25 <= question_id <= 34:
                     continue  # Skip single child questions
             
-            # Condition 4: Skip 2nd/3rd trimester questions if in 1st trimester
+            # Condition 4: Skip 2nd/3rd trimester questions (15-24) if in 1st trimester
             if trimester == "first" and 15 <= question_id <= 24:
+                continue
+            
+            # Condition 4b: Skip 1st trimester questions (10-14) if in 2nd or 3rd trimester
+            if trimester in ["second", "third"] and 10 <= question_id <= 14:
                 continue
             
             # Condition 5: If 3rd trimester, ask 3rd trimester questions first (21-24), then 1st (10-14), then 2nd (15-20)
