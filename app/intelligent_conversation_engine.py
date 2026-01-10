@@ -983,7 +983,8 @@ class IntelligentConversationEngine:
         no_keywords = ["nahi", "no", "na", "nhi", "nahi hai", "na hai"]
         
         # Check the extracted value first (from _extract_information_intelligently)
-        recent_scan_answer = current_pregnancy.get("recent_scan", "").strip().lower()
+        recent_scan_value = current_pregnancy.get("recent_scan", "")
+        recent_scan_answer = str(recent_scan_value).strip().lower() if recent_scan_value is not None else ""
         
         # Determine if answer is yes
         has_recent_scan = False
@@ -1103,10 +1104,13 @@ class IntelligentConversationEngine:
         use_multiple_children_obstetric = number_of_children >= 2
         
         # Check answers for conditional questions
-        blood_test_answer = current_pregnancy.get("blood_urine_tests", "").strip()
-        blood_test_answered = bool(blood_test_answer)  # Check if Q18 is answered
+        # Safely get string value (handle boolean/None cases)
+        blood_test_value = current_pregnancy.get("blood_urine_tests", "")
+        blood_test_answer = str(blood_test_value).strip() if blood_test_value is not None else ""
+        blood_test_answered = bool(blood_test_answer and blood_test_answer.lower() not in ["", "none", "false"])  # Check if Q18 is answered
         
-        sugar_bp_answer = current_pregnancy.get("sugar_bp_tests", "").strip().lower()
+        sugar_bp_value = current_pregnancy.get("sugar_bp_tests", "")
+        sugar_bp_answer = str(sugar_bp_value).strip().lower() if sugar_bp_value is not None else ""
         sugar_bp_issue = any(keyword in sugar_bp_answer for keyword in ["masla", "problem", "tez", "high", "issue", "problem hai", "masla hai"]) if sugar_bp_answer else False
         
         for i in range(start_index, len(self.questions)):
@@ -1165,7 +1169,8 @@ class IntelligentConversationEngine:
             
             # Condition 7: Question 21 (sugar/BP medication) - only if Q20 shows an issue
             if question_id == 21:
-                sugar_bp_answer = current_pregnancy.get("sugar_bp_tests", "").strip()
+                sugar_bp_value = current_pregnancy.get("sugar_bp_tests", "")
+                sugar_bp_answer = str(sugar_bp_value).strip() if sugar_bp_value is not None else ""
                 if not sugar_bp_answer:
                     continue  # Skip if Q20 not answered yet
                 # Check if answer indicates an issue
@@ -1185,7 +1190,8 @@ class IntelligentConversationEngine:
             # Condition 10: Question 29 (normal delivery details) - only if normal delivery
             if question_id == 29:
                 single_child = patient_data.get("obstetric_history", {}).get("single_child", {})
-                delivery_method = single_child.get("delivery_method", "").strip().lower()
+                delivery_method_value = single_child.get("delivery_method", "")
+                delivery_method = str(delivery_method_value).strip().lower() if delivery_method_value is not None else ""
                 if not delivery_method:
                     continue  # Skip if Q28 (delivery method) not answered yet
                 if "normal" not in delivery_method:
@@ -1194,7 +1200,8 @@ class IntelligentConversationEngine:
             # Condition 11: Question 30 (operation reason) - only if operation
             if question_id == 30:
                 single_child = patient_data.get("obstetric_history", {}).get("single_child", {})
-                delivery_method = single_child.get("delivery_method", "").strip().lower()
+                delivery_method_value = single_child.get("delivery_method", "")
+                delivery_method = str(delivery_method_value).strip().lower() if delivery_method_value is not None else ""
                 if not delivery_method:
                     continue  # Skip if Q28 (delivery method) not answered yet
                 # Skip if normal delivery (Q30 is only for operations)
@@ -1207,7 +1214,8 @@ class IntelligentConversationEngine:
             # Condition 12: Question 39 (normal delivery for multiple) - only if any normal delivery
             if question_id == 39:
                 multiple_children = patient_data.get("obstetric_history", {}).get("multiple_children", {})
-                delivery_methods = multiple_children.get("delivery_methods", "").strip().lower()
+                delivery_methods_value = multiple_children.get("delivery_methods", "")
+                delivery_methods = str(delivery_methods_value).strip().lower() if delivery_methods_value is not None else ""
                 if not delivery_methods:
                     continue  # Skip if Q37 (delivery methods) not answered yet
                 if "normal" not in delivery_methods:
@@ -1216,7 +1224,8 @@ class IntelligentConversationEngine:
             # Condition 13: Question 40 (operation reasons for multiple) - only if any operation
             if question_id == 40:
                 multiple_children = patient_data.get("obstetric_history", {}).get("multiple_children", {})
-                delivery_methods = multiple_children.get("delivery_methods", "").strip().lower()
+                delivery_methods_value = multiple_children.get("delivery_methods", "")
+                delivery_methods = str(delivery_methods_value).strip().lower() if delivery_methods_value is not None else ""
                 if not delivery_methods:
                     continue  # Skip if Q37 (delivery methods) not answered yet
                 # Skip if neither operation nor c-section mentioned
