@@ -49,53 +49,47 @@ class IntelligentConversationEngine:
             # Extract information if in questionnaire phase and patient has responded
             if current_phase == "questionnaire" and current_question_index < len(self.questions) and patient_text.strip():
                 current_question = self.questions[current_question_index]
-                extraction_success = await self._extract_information_intelligently(patient_text, patient_data, current_question)
+                await self._extract_information_intelligently(patient_text, patient_data, current_question)
                 
-                # Only proceed with special handling and move to next question if extraction was successful
-                if extraction_success:
-                    # Special handling for question 5 (pregnancy number) - extract pregnancy number and determine if first pregnancy
-                    if current_question_index == 1:  # Question 5 is index 1 (0-based, after removing questions 1, 2, and 3)
-                        await self._extract_pregnancy_number(patient_text, patient_data)
+                # Special handling for question 5 (pregnancy number) - extract pregnancy number and determine if first pregnancy
+                if current_question_index == 1:  # Question 5 is index 1 (0-based, after removing questions 1, 2, and 3)
+                    await self._extract_pregnancy_number(patient_text, patient_data)
+                
+                # Special handling for question 6 (miscarriages/deaths) - only asked if 2nd+ pregnancy
+                # This is handled by _get_next_valid_question_index condition
+                
+                # Special handling for question 7 (LMP) - check if date was remembered
+                if current_question_index == 3:  # Question 7 is index 3 (0-based, after removing questions 1, 2, and 3)
+                    await self._extract_lmp_info(patient_text, patient_data)
+                
+                # Special handling for question 9 (pregnancy month) - extract month and determine trimester
+                if current_question_index == 5:  # Question 9 is index 5 (0-based, after removing questions 1, 2, and 3)
+                    await self._extract_pregnancy_month(patient_text, patient_data)
+                
+                # Special handling for question 16 (anatomy scan) - check for twins
+                current_question_id = current_question.get("id", 0)
+                if current_question_id == 16:  # Question 16 (anatomy scan)
+                    await self._check_for_twins(patient_text, patient_data)
+                
+                # Special handling for question 24 (recent scan) - check for twins and handle follow-up
+                if current_question_id == 24:  # Question 24 (recent scan)
+                    await self._check_for_twins(patient_text, patient_data)
+                    # Check if patient said yes to having a recent scan - if yes, ask follow-up
+                    await self._handle_recent_scan_followup(patient_text, patient_data)
                     
-                    # Special handling for question 6 (miscarriages/deaths) - only asked if 2nd+ pregnancy
-                    # This is handled by _get_next_valid_question_index condition
-                    
-                    # Special handling for question 7 (LMP) - check if date was remembered
-                    if current_question_index == 3:  # Question 7 is index 3 (0-based, after removing questions 1, 2, and 3)
-                        await self._extract_lmp_info(patient_text, patient_data)
-                    
-                    # Special handling for question 9 (pregnancy month) - extract month and determine trimester
-                    if current_question_index == 5:  # Question 9 is index 5 (0-based, after removing questions 1, 2, and 3)
-                        await self._extract_pregnancy_month(patient_text, patient_data)
-                    
-                    # Special handling for question 16 (anatomy scan) - check for twins
-                    current_question_id = current_question.get("id", 0)
-                    if current_question_id == 16:  # Question 16 (anatomy scan)
-                        await self._check_for_twins(patient_text, patient_data)
-                    
-                    # Special handling for question 24 (recent scan) - check for twins and handle follow-up
-                    if current_question_id == 24:  # Question 24 (recent scan)
-                        await self._check_for_twins(patient_text, patient_data)
-                        # Check if patient said yes to having a recent scan - if yes, ask follow-up
-                        await self._handle_recent_scan_followup(patient_text, patient_data)
-                        
-                        # If follow-up is needed, don't increment question index yet
-                        current_pregnancy = patient_data.get("current_pregnancy", {})
-                        if current_pregnancy.get("recent_scan_followup_needed", False):
-                            # Keep current index, will ask follow-up in questionnaire phase
-                            patient_data["current_question_index"] = current_question_index
-                        else:
-                            # No follow-up needed, move to next question
-                            next_index = self._get_next_valid_question_index(current_question_index + 1, patient_data)
-                            patient_data["current_question_index"] = next_index
+                    # If follow-up is needed, don't increment question index yet
+                    current_pregnancy = patient_data.get("current_pregnancy", {})
+                    if current_pregnancy.get("recent_scan_followup_needed", False):
+                        # Keep current index, will ask follow-up in questionnaire phase
+                        patient_data["current_question_index"] = current_question_index
                     else:
-                        # Get next valid question index (skip obstetric history if first pregnancy, skip question 48 if no twins, skip 23-30 if first trimester)
+                        # No follow-up needed, move to next question
                         next_index = self._get_next_valid_question_index(current_question_index + 1, patient_data)
                         patient_data["current_question_index"] = next_index
                 else:
-                    # Extraction failed - keep current question index, will ask again in questionnaire phase
-                    patient_data["current_question_index"] = current_question_index
-                    print(f"⚠️ Extraction failed for question {current_question_index}, will ask again")
+                    # Always move to next question after extraction
+                    next_index = self._get_next_valid_question_index(current_question_index + 1, patient_data)
+                    patient_data["current_question_index"] = next_index
             
             # Determine next phase and response
             result = await self._determine_next_response(patient_text, patient_data)
@@ -1248,21 +1242,7 @@ class IntelligentConversationEngine:
         # Ask the current question
         current_question = self.questions[current_question_index]
         question_text = current_question["text"]
-        
-        # Check if we just tried to extract and it failed - provide helpful message
-        # Check if the field is still empty (extraction might have failed)
-        field_path = current_question.get("field", "")
-        if field_path and patient_text.strip():
-            # Check if field is empty (extraction might have failed)
-            field_value = self._get_field_value(patient_data, field_path)
-            if not field_value or str(field_value).strip() == "" or str(field_value).strip() == "None":
-                # Extraction failed, ask again with helpful message
-                response_text = f"معذرت، میں آپ کی بات سمجھ نہیں سکی۔ براہ کرم دوبارہ بتائیں:\n\n{question_text}"
-            else:
-                # Field has value, ask next question normally
-                response_text = question_text
-        else:
-            response_text = question_text
+        response_text = question_text
         
         return {
             "response_text": response_text,
