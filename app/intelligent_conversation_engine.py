@@ -1454,12 +1454,14 @@ class IntelligentConversationEngine:
         - Family history
         - Personal history
         
+        IMPORTANT: All responses must be in ENGLISH for medical documentation purposes.
+        
         Return as JSON:
         {{
             "alert_level": "red" or "yellow" or "green",
-            "assessment_summary": "brief assessment in Urdu using FEMALE-GENDERED verbs",
-            "clinical_impression": "likely diagnosis or condition",
-            "recommendations": "what patient should do next"
+            "assessment_summary": "brief assessment summary in ENGLISH - professional medical language",
+            "clinical_impression": "likely diagnosis or condition in ENGLISH - professional medical terminology",
+            "recommendations": "what patient should do next in ENGLISH - clear medical recommendations"
         }}
         """
         
@@ -1480,13 +1482,13 @@ class IntelligentConversationEngine:
                     json_text = response_text[start_idx:end_idx]
                     return json.loads(json_text)
                 else:
-                    return {"alert_level": "yellow", "assessment_summary": "عام طبی مشورہ"}
+                    return {"alert_level": "yellow", "assessment_summary": "Standard gynecological consultation - requires further evaluation", "clinical_impression": "Requires clinical evaluation", "recommendations": "Follow-up with healthcare provider recommended"}
             except json.JSONDecodeError:
-                return {"alert_level": "yellow", "assessment_summary": "عام طبی مشورہ"}
+                return {"alert_level": "yellow", "assessment_summary": "Standard gynecological consultation - requires further evaluation", "clinical_impression": "Requires clinical evaluation", "recommendations": "Follow-up with healthcare provider recommended"}
                 
         except Exception as e:
             print(f"Error generating assessment: {e}")
-            return {"alert_level": "yellow", "assessment_summary": "عام طبی مشورہ"}
+            return {"alert_level": "yellow", "assessment_summary": "Standard gynecological consultation - requires further evaluation", "clinical_impression": "Requires clinical evaluation", "recommendations": "Follow-up with healthcare provider recommended"}
     
     async def _handle_completed_phase(self, patient_text: str, patient_data: Dict[str, Any]) -> Dict[str, Any]:
         """Handle completed phase - conversation is done"""
@@ -1564,11 +1566,22 @@ class IntelligentConversationEngine:
                 print(f"✅ Generated alert level: {alert_level}")
             
             emr_prompt = f"""
-            Generate a comprehensive gynecological EMR (Electronic Medical Record) in English for this patient.
+            You are a senior gynecologist generating a comprehensive Electronic Medical Record (EMR) for a patient.
+            
+            CRITICAL REQUIREMENTS:
+            - EVERYTHING must be written in PROFESSIONAL ENGLISH medical terminology
+            - NO Urdu, Roman Urdu, or any other language - ONLY English
+            - Use proper medical terminology and professional language throughout
+            - Assessment summary, clinical impression, and all sections must be in English
+            - Translate any Urdu/Roman Urdu patient responses to English medical terms
             
             Complete Patient Data: {json.dumps(self._convert_to_json_serializable(emr_patient_data), ensure_ascii=False, indent=2)}
             
-            Create a detailed professional gynecological medical report using ALL the structured information collected from the 60-question questionnaire. Include the following sections:
+            Create a detailed professional gynecological medical report using ALL the structured information collected from the 60-question questionnaire. 
+            
+            IMPORTANT: All content must be in English - translate patient responses from Urdu/Roman Urdu to proper English medical terminology.
+            
+            Include the following sections:
             
             # ELECTRONIC MEDICAL RECORD (EMR)
             ## Gynecological Consultation Report
@@ -1608,17 +1621,21 @@ class IntelligentConversationEngine:
             
             ### 12. MEDICAL ASSESSMENT
             **Alert Level:** {alert_level.upper()}
-            **Assessment Summary:** {emr_patient_data.get('assessment_summary', 'Standard gynecological consultation')}
-            **Clinical Impression:** {emr_patient_data.get('clinical_impression', 'Requires further evaluation')}
+            **Assessment Summary:** Write a comprehensive assessment summary in English. If the provided assessment_summary contains Urdu or non-English text, translate it to professional English medical terminology: {emr_patient_data.get('assessment_summary', 'Standard gynecological consultation')}
+            **Clinical Impression:** Write clinical impression in English. If the provided clinical_impression contains Urdu or non-English text, translate it to professional English medical terminology: {emr_patient_data.get('clinical_impression', 'Requires further evaluation')}
+            
+            NOTE: Translate any Urdu/Roman Urdu text in assessment_summary or clinical_impression to proper English medical terminology.
             
             ### 13. COMPREHENSIVE MEDICAL SUMMARY
-            Generate a detailed clinical assessment that synthesizes ALL the collected information. Provide a thorough analysis of the patient's condition based on all 60 questions answered.
+            Generate a detailed clinical assessment in English that synthesizes ALL the collected information. Provide a thorough analysis of the patient's condition based on all 60 questions answered. Use professional medical terminology throughout. Translate any patient responses from Urdu/Roman Urdu to English.
             
             ### 14. RECOMMENDATIONS
-            Provide detailed recommendations for further care, follow-up, investigations, and treatment options based on the complete assessment.
+            Provide detailed recommendations in English for further care, follow-up, investigations, and treatment options based on the complete assessment. Use clear, professional medical language.
             
             ### 15. FOLLOW-UP INSTRUCTIONS
-            Clear follow-up instructions including when to return, what to monitor, and when to seek immediate care.
+            Clear follow-up instructions in English including when to return, what to monitor, and when to seek immediate care.
+            
+            REMEMBER: Every single word, sentence, and section must be in English. Translate any non-English content to proper English medical terminology.
             
             ---
             **Report Generated:** {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
