@@ -114,9 +114,49 @@ class IntelligentConversationEngine:
                 except:
                     patient_data = self._initialize_patient_data(patient_id)
             
+            # Instead of showing error, continue with conversation flow
+            current_phase = patient_data.get("current_phase", "onboarding")
+            
+            # If in questionnaire phase, try to continue with next question
+            if current_phase == "questionnaire":
+                current_question_index = patient_data.get("current_question_index", 0)
+                try:
+                    if isinstance(current_question_index, str):
+                        current_question_index = int(current_question_index) if current_question_index.isdigit() else 0
+                    else:
+                        current_question_index = int(current_question_index)
+                except (ValueError, TypeError):
+                    current_question_index = 0
+                
+                # Move to next question to avoid getting stuck
+                if current_question_index < len(self.questions):
+                    next_index = self._get_next_valid_question_index(current_question_index + 1, patient_data)
+                    patient_data["current_question_index"] = next_index
+                    
+                    if next_index < len(self.questions):
+                        current_question = self.questions[next_index]
+                        response_text = current_question["text"]
+                    else:
+                        # All questions done, move to assessment
+                        patient_data["current_phase"] = "assessment"
+                        response_text = "شکریہ! تمام سوالات مکمل ہو گئے ہیں۔ اب میں آپ کا طبی جائزہ تیار کر رہی ہوں۔"
+                        current_phase = "assessment"
+                else:
+                    # Already at end, move to assessment
+                    patient_data["current_phase"] = "assessment"
+                    response_text = "شکریہ! تمام سوالات مکمل ہو گئے ہیں۔ اب میں آپ کا طبی جائزہ تیار کر رہی ہوں۔"
+                    current_phase = "assessment"
+            else:
+                # For other phases, just continue normally
+                result = await self._determine_next_response("", patient_data)
+                return result
+            
+            # Update patient data
+            await self.firestore_service.update_patient(patient_id, patient_data)
+            
             return {
-                "response_text": f"معذرت، میں آپ کی بات سمجھ نہیں سکی۔ براہ کرم دوبارہ کوشش کریں۔\n\n(Technical: {str(e)})",
-                "next_phase": patient_data.get("current_phase", "onboarding"),
+                "response_text": response_text,
+                "next_phase": current_phase,
                 "patient_data": patient_data,
                 "action": "continue_conversation"
             }
