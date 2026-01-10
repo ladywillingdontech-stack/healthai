@@ -167,7 +167,7 @@ class IntelligentConversationEngine:
             # Patient Profile (Questions 1-8 from document)
             # Note: Question 1 (name) and Question 3 (age) are collected during onboarding, so not included here
             {"id": 4, "text": "Shaadi ko kitna arsa ho gaya hai? Khandaan mein hoyi hai ya baahir?", "field": "demographics.marriage_info", "category": "patient_profile"},
-            {"id": 5, "text": "Apka kitnwa hamal hai?", "field": "demographics.pregnancy_number", "category": "patient_profile"},
+            {"id": 5, "text": "Apka kitnwa hamal hai? Kya is hamal mein jurwan bachy hain?", "field": "demographics.pregnancy_number", "category": "patient_profile"},
             {"id": 6, "text": "Koi hamal zaya tu nhi hua ya koi bacha fout tu nahi hua?", "field": "demographics.miscarriages_deaths", "category": "patient_profile", "condition": "if_2nd_or_more_pregnancy"},
             {"id": 7, "text": "Aapko mahwari kab ayi thi?", "field": "demographics.last_menstrual_period", "category": "patient_profile"},
             {"id": 8, "text": "Kiya mahwari apko waqt per aati hai?", "field": "demographics.regular_periods", "category": "patient_profile", "condition": "if_lmp_not_remembered"},
@@ -188,7 +188,7 @@ class IntelligentConversationEngine:
             {"id": 16, "text": "Apka panchwain mahinay main bachay ki banawat wala ultrasound hua tha?", "field": "current_pregnancy.anatomy_scan", "category": "second_third_trimester"},
             {"id": 17, "text": "Kiya ap baa-qaidgi se checkup kerwati hain?", "field": "current_pregnancy.regular_checkup", "category": "second_third_trimester"},
             {"id": 18, "text": "khoon pishaap ke test hoye hain?", "field": "current_pregnancy.blood_urine_tests", "category": "second_third_trimester"},
-            {"id": 19, "text": "If yes, Hb kitni hai? If no, kya aapko thakawat, saans ka phoolna, ya dil ki dharkan tez hone ka masla hota hai?", "field": "current_pregnancy.hb_level_symptoms", "category": "second_third_trimester", "condition": "if_blood_test_answered"},
+            {"id": 19, "text": "Hb kitni hai?", "field": "current_pregnancy.hb_level_symptoms", "category": "second_third_trimester", "condition": "if_blood_test_answered"},
             {"id": 20, "text": "Aapke sugar aur blood pressure ke test hoye thay? Koi masla tou nahi aya?", "field": "current_pregnancy.sugar_bp_tests", "category": "second_third_trimester"},
             {"id": 21, "text": "aapko is masle ke liye koi dawai khaani parhti hai?", "field": "current_pregnancy.sugar_bp_medication", "category": "second_third_trimester", "condition": "if_sugar_bp_issue"},
             {"id": 22, "text": "Aap taqat ki dawain le rahi hain?", "field": "current_pregnancy.supplements", "category": "second_third_trimester"},
@@ -212,8 +212,8 @@ class IntelligentConversationEngine:
             {"id": 36, "text": "Kya aapke tamam bachay poore dino pe paida huay thay?", "field": "obstetric_history.multiple_children.all_full_term", "category": "obstetric_history_multiple_children"},
             {"id": 37, "text": "Kya sab bachay normal tareeqe se paida huay thay ya kisi ka operation (C-section) hoa tha?", "field": "obstetric_history.multiple_children.delivery_methods", "category": "obstetric_history_multiple_children"},
             {"id": 38, "text": "Aapke bachay kahan paida huay thay?", "field": "obstetric_history.multiple_children.delivery_locations", "category": "obstetric_history_multiple_children"},
-            {"id": 39, "text": "For normal deliveries: Jin bachon ki normal delivery hui thi, kya un mein dardien khud lag gayi thi ya lagwani pari thi?", "field": "obstetric_history.multiple_children.normal_delivery_details", "category": "obstetric_history_multiple_children", "condition": "if_any_normal_delivery"},
-            {"id": 40, "text": "For Caesarean/Operation: Operation ki wajah kya thi?", "field": "obstetric_history.multiple_children.operation_reasons", "category": "obstetric_history_multiple_children", "condition": "if_any_operation"},
+            {"id": 39, "text": "Jin bachon ki normal delivery hui thi, kya un mein dardien khud lag gayi thi ya lagwani pari thi?", "field": "obstetric_history.multiple_children.normal_delivery_details", "category": "obstetric_history_multiple_children", "condition": "if_any_normal_delivery"},
+            {"id": 40, "text": "Operation ki wajah kya thi?", "field": "obstetric_history.multiple_children.operation_reasons", "category": "obstetric_history_multiple_children", "condition": "if_any_operation"},
             {"id": 41, "text": "Delivery ke baad kisi bache ya aapko koi masla tou nahi hua tha?", "field": "obstetric_history.multiple_children.post_delivery_complications", "category": "obstetric_history_multiple_children"},
             {"id": 42, "text": "Kya aapke tamam bachay ab theek hain? Kya sab school jatay hain?", "field": "obstetric_history.multiple_children.current_status", "category": "obstetric_history_multiple_children"},
             {"id": 43, "text": "Kya kisi bhi huml ke dauran aapko sugar, blood pressure, ya khoon ka masla hua tha? Ya koi aur masla jo aap batana chahein?", "field": "obstetric_history.multiple_children.pregnancy_complications", "category": "obstetric_history_multiple_children"},
@@ -656,9 +656,15 @@ class IntelligentConversationEngine:
             print(f"❌ Missing: {', '.join(missing_info)}")
             if not patient_data.get("has_greeted"):
                 patient_data["has_greeted"] = True
-                response_text = f"وعلیکم السلام! میں آپ کی گائناکالوجی کی مدد کرنے کے لئے ہوں۔ براہ کرم مجھے اپنا {missing_info[0]} بتائیں۔"
+                if "عمر" in missing_info[0]:
+                    response_text = f"وعلیکم السلام! میں آپ کی گائناکالوجی کی مدد کرنے کے لئے ہوں۔ آپ کی عمر کتنی ہے؟"
+                else:
+                    response_text = f"وعلیکم السلام! میں آپ کی گائناکالوجی کی مدد کرنے کے لئے ہوں۔ براہ کرم مجھے اپنا {missing_info[0]} بتائیں۔"
             else:
-                response_text = f"براہ کرم مجھے اپنا {missing_info[0]} بتائیں۔"
+                if "عمر" in missing_info[0]:
+                    response_text = f"آپ کی عمر کتنی ہے؟"
+                else:
+                    response_text = f"براہ کرم مجھے اپنا {missing_info[0]} بتائیں۔"
             
             return {
                 "response_text": response_text,
@@ -797,9 +803,10 @@ class IntelligentConversationEngine:
             print(f"Error extracting pregnancy month: {e}")
     
     async def _extract_pregnancy_number(self, patient_text: str, patient_data: Dict[str, Any]):
-        """Extract pregnancy number from question 5 response and determine if first pregnancy"""
+        """Extract pregnancy number from question 5 response, determine if first pregnancy, and check for twins"""
         
         demographics = patient_data.get("demographics", {})
+        current_pregnancy = patient_data.get("current_pregnancy", {})
         pregnancy_number = demographics.get("pregnancy_number", "")
         
         # Try to extract number from text
@@ -810,19 +817,35 @@ class IntelligentConversationEngine:
                 preg_num = int(numbers[0])
                 demographics["pregnancy_number"] = str(preg_num)
                 demographics["first_pregnancy"] = (preg_num == 1)
-                print(f"✅ Extracted pregnancy number: {preg_num}, first_pregnancy: {preg_num == 1}")
+                # Calculate number_of_children from pregnancy_number
+                # If 1st pregnancy → 0 children, 2nd pregnancy → 1 child, 3rd pregnancy → 2 children, etc.
+                demographics["number_of_children"] = max(0, preg_num - 1)
+                print(f"✅ Extracted pregnancy number: {preg_num}, first_pregnancy: {preg_num == 1}, number_of_children: {demographics['number_of_children']}")
             except:
                 pass
         
-        # Also check for "pehla", "first" keywords
+        # Also check for "pehla", "first" keywords (but not "jurwan" alone as it can mean twins)
         patient_text_lower = patient_text.lower()
-        if any(word in patient_text_lower for word in ["pehla", "pehli", "first", "1st", "ek"]):
+        first_pregnancy_keywords = ["pehla", "pehli", "first", "1st", "ek", "pehla hai", "pehli hai", "pehla hamal", "pehli hamal"]
+        if any(keyword in patient_text_lower for keyword in first_pregnancy_keywords):
             if not demographics.get("pregnancy_number"):
                 demographics["pregnancy_number"] = "1"
                 demographics["first_pregnancy"] = True
-                print(f"✅ Detected first pregnancy from keywords")
+                demographics["number_of_children"] = 0  # First pregnancy means 0 children
+                print(f"✅ Detected first pregnancy from keywords, number_of_children: 0")
+        
+        # Check for twins in the response (more specific keywords to avoid confusion)
+        twins_keywords = ["jurwan bachy", "jurwan bachay", "joorwan bachy", "joorwan bachay", "jurwan bache", "joorwan bache", 
+                         "twins", "do bache", "2 bache", "dual", "multiple", "do bache ek sath", "do bachay ek sath",
+                         "is hamal mein jurwan", "is hamal mein joorwan", "jurwan hain", "joorwan hain"]
+        has_twins_mentioned = any(keyword in patient_text_lower for keyword in twins_keywords)
+        
+        if has_twins_mentioned:
+            current_pregnancy["has_twins"] = True
+            print(f"✅ Detected twins from question 5 response")
         
         patient_data["demographics"] = demographics
+        patient_data["current_pregnancy"] = current_pregnancy
     
     async def _extract_lmp_info(self, patient_text: str, patient_data: Dict[str, Any]):
         """Extract LMP date and check if it was remembered"""
@@ -1072,7 +1095,7 @@ class IntelligentConversationEngine:
         except:
             pass
         
-        # Get number of children
+        # Get number of children - calculate from pregnancy_number if not already set
         number_of_children = demographics.get("number_of_children", 0)
         try:
             if isinstance(number_of_children, str):
@@ -1083,6 +1106,18 @@ class IntelligentConversationEngine:
                 number_of_children = int(number_of_children)
         except (ValueError, TypeError):
             number_of_children = 0
+        
+        # If number_of_children is 0 but we have pregnancy_number, calculate it
+        # If 1st pregnancy → 0 children, 2nd pregnancy → 1 child, 3rd pregnancy → 2 children, etc.
+        if number_of_children == 0 and pregnancy_number:
+            try:
+                preg_num = int(pregnancy_number) if str(pregnancy_number).isdigit() else 0
+                if preg_num > 1:
+                    number_of_children = preg_num - 1
+                    demographics["number_of_children"] = number_of_children
+                    print(f"✅ Calculated number_of_children from pregnancy_number: {preg_num} → {number_of_children}")
+            except:
+                pass
         
         # Check if LMP was remembered
         lmp_remembered = demographics.get("last_menstrual_period_remembered", False)
@@ -1211,26 +1246,27 @@ class IntelligentConversationEngine:
                 if "operation" not in delivery_method and "c-section" not in delivery_method:
                     continue
             
-            # Condition 12: Question 39 (normal delivery for multiple) - only if any normal delivery
+            # Condition 12: Question 39 (normal delivery for multiple) - ONLY ask if normal delivery exists
             if question_id == 39:
                 multiple_children = patient_data.get("obstetric_history", {}).get("multiple_children", {})
                 delivery_methods_value = multiple_children.get("delivery_methods", "")
                 delivery_methods = str(delivery_methods_value).strip().lower() if delivery_methods_value is not None else ""
                 if not delivery_methods:
                     continue  # Skip if Q37 (delivery methods) not answered yet
+                # Only ask if "normal" is mentioned - skip if no normal delivery
                 if "normal" not in delivery_methods:
                     continue  # Skip if no normal delivery
             
-            # Condition 13: Question 40 (operation reasons for multiple) - only if any operation
+            # Condition 13: Question 40 (operation reasons for multiple) - ONLY ask if operation/C-section exists
             if question_id == 40:
                 multiple_children = patient_data.get("obstetric_history", {}).get("multiple_children", {})
                 delivery_methods_value = multiple_children.get("delivery_methods", "")
                 delivery_methods = str(delivery_methods_value).strip().lower() if delivery_methods_value is not None else ""
                 if not delivery_methods:
                     continue  # Skip if Q37 (delivery methods) not answered yet
-                # Skip if neither operation nor c-section mentioned
+                # Only ask if "operation" or "c-section" is mentioned - skip if no operation
                 if "operation" not in delivery_methods and "c-section" not in delivery_methods:
-                    continue
+                    continue  # Skip if no operation/C-section
             
             return i
         
@@ -1291,6 +1327,25 @@ class IntelligentConversationEngine:
         # Ask the current question
         current_question = self.questions[current_question_index]
         question_text = current_question["text"]
+        
+        # Special handling for question 19 - dynamic text based on blood_urine_tests
+        if current_question.get("id") == 19:
+            blood_test_value = current_pregnancy.get("blood_urine_tests", "")
+            # Check if blood test was done (true/yes) or not (false/no)
+            blood_test_done = False
+            if isinstance(blood_test_value, bool):
+                blood_test_done = blood_test_value
+            elif isinstance(blood_test_value, str):
+                blood_test_lower = str(blood_test_value).strip().lower()
+                blood_test_done = any(word in blood_test_lower for word in ["yes", "haan", "hai", "hain", "kiya", "karaya", "true", "1"])
+            
+            if blood_test_done:
+                # If blood test was done, ask about Hb level
+                question_text = "Hb kitni hai?"
+            else:
+                # If blood test was not done, ask about symptoms
+                question_text = "Kya aapko thakawat, saans ka phoolna, ya dil ki dharkan tez hone ka masla hota hai?"
+        
         response_text = question_text
         
         return {
@@ -1324,11 +1379,11 @@ class IntelligentConversationEngine:
         
         # Generate response based on alert level
         if alert_level == "red":
-            response_text = f"{assessment.get('assessment_summary', '')}\n\n🚨 آپ کو فوراً اپنے ڈاکٹر کے پاس جانا چاہیے"
+            response_text = f"{assessment.get('assessment_summary', '')}\n\nیہ ایک RED ALERT ہے۔ آپ کو فوراً اپنے ڈاکٹر کے پاس جانا چاہیے۔"
         elif alert_level == "yellow":
-            response_text = f"{assessment.get('assessment_summary', '')}\n\n⚠️ آپ کو ڈاکٹر کو دکھا لینا چاہیے جب آپ کے پاس وقت ہو۔ یہ بہت urgent نہیں ہے"
+            response_text = f"{assessment.get('assessment_summary', '')}\n\nیہ ایک YELLOW ALERT ہے۔ آپ کو ڈاکٹر کو دکھا لینا چاہیے جب آپ کے پاس وقت ہو۔ یہ بہت urgent نہیں ہے۔"
         else:
-            response_text = f"{assessment.get('assessment_summary', '')}\n\n✅ آپ کا طبی رپورٹ تیار ہو گیا ہے۔ اللہ حافظ!"
+            response_text = f"{assessment.get('assessment_summary', '')}\n\nیہ ایک GREEN ALERT ہے۔ آپ کا طبی رپورٹ تیار ہو گیا ہے۔ اللہ حافظ!"
         
         return {
             "response_text": response_text,
@@ -1336,6 +1391,20 @@ class IntelligentConversationEngine:
             "patient_data": patient_data,
             "action": "generate_emr"
         }
+    
+    def _convert_to_json_serializable(self, obj: Any) -> Any:
+        """Convert Firestore datetime objects and other non-serializable types to JSON-serializable formats"""
+        if hasattr(obj, 'isoformat'):  # DatetimeWithNanoseconds or datetime objects
+            return obj.isoformat()
+        elif isinstance(obj, dict):
+            return {key: self._convert_to_json_serializable(value) for key, value in obj.items()}
+        elif isinstance(obj, list):
+            return [self._convert_to_json_serializable(item) for item in obj]
+        elif isinstance(obj, (int, float, str, bool, type(None))):
+            return obj
+        else:
+            # For any other type, convert to string
+            return str(obj)
     
     async def _generate_assessment(self, patient_data: Dict[str, Any]) -> Dict[str, Any]:
         """Generate medical assessment using AI based on all collected structured data"""
@@ -1351,7 +1420,7 @@ class IntelligentConversationEngine:
         - Always speak as a female medical professional
         
         COMPLETE PATIENT INFORMATION:
-        {json.dumps(patient_data, ensure_ascii=False, indent=2)}
+        {json.dumps(self._convert_to_json_serializable(patient_data), ensure_ascii=False, indent=2)}
         
         ASSESSMENT CRITERIA:
         
@@ -1497,7 +1566,7 @@ class IntelligentConversationEngine:
             emr_prompt = f"""
             Generate a comprehensive gynecological EMR (Electronic Medical Record) in English for this patient.
             
-            Complete Patient Data: {json.dumps(emr_patient_data, ensure_ascii=False, indent=2)}
+            Complete Patient Data: {json.dumps(self._convert_to_json_serializable(emr_patient_data), ensure_ascii=False, indent=2)}
             
             Create a detailed professional gynecological medical report using ALL the structured information collected from the 60-question questionnaire. Include the following sections:
             
