@@ -562,6 +562,22 @@ class MetaWhatsAppService:
                         response_text = conversation_result.get('response_text', 'I understand. Please tell me more.')
                         print(f"🤖 AI Response: {response_text}")
                         
+                        # Check if EMR generation is needed
+                        action = conversation_result.get('action', 'continue_conversation')
+                        print(f"🔍 Action from conversation result: {action}")
+                        if action == 'generate_emr':
+                            print("🚨 Generating EMR for completed conversation...")
+                            try:
+                                emr_result = await intelligent_conversation_engine.generate_emr(from_number)
+                                if emr_result:
+                                    print("✅ EMR generated successfully")
+                                else:
+                                    print("❌ EMR generation failed")
+                            except Exception as e:
+                                print(f"❌ EMR generation error: {e}")
+                                import traceback
+                                traceback.print_exc()
+                        
                         # Convert response to speech
                         audio_file = await voice_processor.text_to_speech(response_text)
                         print(f"🔊 Generated audio type: {type(audio_file)}")
