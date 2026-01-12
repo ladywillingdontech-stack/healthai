@@ -1497,8 +1497,21 @@ class IntelligentConversationEngine:
     async def _handle_completed_phase(self, patient_text: str, patient_data: Dict[str, Any]) -> Dict[str, Any]:
         """Handle completed phase - conversation is done"""
         
-        # Archive this visit before marking as completed
-        await self._archive_current_visit(patient_data)
+        # Ensure assessment_complete is True and phase is completed (in case it wasn't set properly)
+        patient_data["assessment_complete"] = True
+        patient_data["current_phase"] = "completed"
+        
+        # Archive visit if it hasn't been archived yet
+        visit_number = patient_data.get("visit_number", 1)
+        visit_history = patient_data.get("visit_history", [])
+        if not isinstance(visit_history, list):
+            visit_history = []
+        
+        # Check if this visit has already been archived
+        existing_visit = next((v for v in visit_history if v.get("visit_number") == visit_number), None)
+        if not existing_visit:
+            # Archive this visit
+            await self._archive_current_visit(patient_data)
         
         response_text = "✅ آپ کا طبی رپورٹ تیار ہو گیا ہے۔ اللہ حافظ!"
         
@@ -1683,11 +1696,13 @@ class IntelligentConversationEngine:
             }
             
             # Update patient data with the alert level and assessment
+            # Ensure assessment_complete is True and phase is completed
             await self.firestore_service.update_patient(patient_id, {
                 "alert_level": alert_level,
                 "assessment_summary": emr_patient_data.get('assessment_summary', 'Standard gynecological consultation'),
                 "clinical_impression": emr_patient_data.get('clinical_impression', 'Requires further evaluation'),
                 "assessment_complete": True,
+                "current_phase": "completed",  # Ensure phase is set to completed
                 "updated_at": datetime.now().isoformat()
             })
             
