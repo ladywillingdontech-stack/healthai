@@ -25,6 +25,13 @@ class IntelligentConversationEngine:
                 patient_data = self._initialize_patient_data(patient_id)
                 await self.firestore_service.create_patient(patient_data)
             
+            # Check if patient is returning after a completed visit
+            current_phase = patient_data.get("current_phase", "onboarding")
+            if current_phase == "completed":
+                # Patient is returning - start a new visit
+                await self._start_new_visit(patient_data)
+                current_phase = patient_data.get("current_phase", "onboarding")
+            
             # Add current response to conversation history
             patient_data["conversation_history"].append({
                 "patient_text": patient_text,
@@ -32,7 +39,6 @@ class IntelligentConversationEngine:
             })
             
             # Get current question if in questionnaire phase
-            current_phase = patient_data.get("current_phase", "onboarding")
             current_question_index = patient_data.get("current_question_index", 0)
             
             # Ensure current_question_index is an integer (Firestore may store as string)
@@ -335,6 +341,8 @@ class IntelligentConversationEngine:
             "current_question_index": 0,
             "assessment_complete": False,
             "alert_level": None,
+            "visit_number": 1,
+            "visit_history": [],
             "created_at": datetime.now().isoformat(),
             "updated_at": datetime.now().isoformat()
         }
@@ -1313,16 +1321,12 @@ class IntelligentConversationEngine:
         
         # Check if we've completed all questions
         if current_question_index >= len(self.questions):
-            # All questions answered, move to assessment
+            # All questions answered, move to assessment and generate it immediately
             patient_data["current_phase"] = "assessment"
-            response_text = "شکریہ! تمام سوالات مکمل ہو گئے ہیں۔ اب میں آپ کا طبی جائزہ تیار کر رہی ہوں۔"
             
-            return {
-                "response_text": response_text,
-                "next_phase": "assessment",
-                "patient_data": patient_data,
-                "action": "continue_conversation"
-            }
+            # Immediately trigger assessment phase (don't wait for next patient message)
+            assessment_result = await self._handle_assessment_phase(patient_text, patient_data)
+            return assessment_result
         
         # Ask the current question
         current_question = self.questions[current_question_index]
@@ -1493,6 +1497,9 @@ class IntelligentConversationEngine:
     async def _handle_completed_phase(self, patient_text: str, patient_data: Dict[str, Any]) -> Dict[str, Any]:
         """Handle completed phase - conversation is done"""
         
+        # Archive this visit before marking as completed
+        await self._archive_current_visit(patient_data)
+        
         response_text = "✅ آپ کا طبی رپورٹ تیار ہو گیا ہے۔ اللہ حافظ!"
         
         return {
@@ -1505,9 +1512,17 @@ class IntelligentConversationEngine:
     async def _handle_general_response(self, patient_text: str, patient_data: Dict[str, Any]) -> Dict[str, Any]:
         """Handle general responses"""
         
+        # Check if patient is returning after a completed visit
+        if patient_data.get("current_phase") == "completed":
+            await self._start_new_visit(patient_data)
+        
         if not patient_data.get("has_greeted"):
             patient_data["has_greeted"] = True
-            response_text = "وعلیکم السلام! میں آپ کی گائناکالوجی کی مدد کرنے کے لئے ہوں۔ براہ کرم مجھے اپنا نام بتائیں۔"
+            visit_number = patient_data.get("visit_number", 1)
+            if visit_number > 1:
+                response_text = f"وعلیکم السلام! آپ کا دوبارہ خیرمقدم ہے۔ یہ آپ کا {visit_number}واں دورہ ہے۔ براہ کرم مجھے اپنا نام بتائیں۔"
+            else:
+                response_text = "وعلیکم السلام! میں آپ کی گائناکالوجی کی مدد کرنے کے لئے ہوں۔ براہ کرم مجھے اپنا نام بتائیں۔"
         else:
             response_text = "براہ کرم مجھے اپنا نام بتائیں۔"
         
@@ -1652,9 +1667,13 @@ class IntelligentConversationEngine:
             
             emr_content = response.choices[0].message.content.strip()
             
+            # Get visit number for this EMR
+            visit_number = emr_patient_data.get('visit_number', 1)
+            
             # Save EMR to Firestore
             emr_data = {
                 "patient_id": patient_id,
+                "visit_number": visit_number,
                 "emr_content": emr_content,
                 "alert_level": alert_level,
                 "assessment_summary": emr_patient_data.get('assessment_summary', 'Standard gynecological consultation'),
@@ -1679,6 +1698,108 @@ class IntelligentConversationEngine:
         except Exception as e:
             print(f"Error generating EMR: {e}")
             return False
+    
+    async def _archive_current_visit(self, patient_data: Dict[str, Any]):
+        """Archive the current visit data to visit_history before starting a new visit"""
+        try:
+            visit_number = patient_data.get("visit_number", 1)
+            
+            # Check if this visit has already been archived
+            visit_history = patient_data.get("visit_history", [])
+            if not isinstance(visit_history, list):
+                visit_history = []
+            
+            # Check if this visit number already exists in history
+            existing_visit = next((v for v in visit_history if v.get("visit_number") == visit_number), None)
+            if existing_visit:
+                print(f"⚠️ Visit {visit_number} already archived, skipping")
+                return
+            
+            # Create a copy of current visit data (excluding visit tracking fields)
+            visit_data = {
+                "visit_number": visit_number,
+                "visit_date": datetime.now().isoformat(),
+                "completed_at": datetime.now().isoformat(),
+                "alert_level": patient_data.get("alert_level"),
+                "assessment_summary": patient_data.get("assessment_summary", ""),
+                "clinical_impression": patient_data.get("clinical_impression", ""),
+                "problem_description": patient_data.get("problem_description", ""),
+                "demographics": patient_data.get("demographics", {}).copy() if isinstance(patient_data.get("demographics"), dict) else {},
+                "current_pregnancy": patient_data.get("current_pregnancy", {}).copy() if isinstance(patient_data.get("current_pregnancy"), dict) else {},
+                "obstetric_history": patient_data.get("obstetric_history", {}).copy() if isinstance(patient_data.get("obstetric_history"), dict) else {},
+                "gynecological_history": patient_data.get("gynecological_history", {}).copy() if isinstance(patient_data.get("gynecological_history"), dict) else {},
+                "past_medical_history": patient_data.get("past_medical_history", {}).copy() if isinstance(patient_data.get("past_medical_history"), dict) else {},
+                "surgical_history": patient_data.get("surgical_history", {}).copy() if isinstance(patient_data.get("surgical_history"), dict) else {},
+                "family_history": patient_data.get("family_history", {}).copy() if isinstance(patient_data.get("family_history"), dict) else {},
+                "personal_history": patient_data.get("personal_history", {}).copy() if isinstance(patient_data.get("personal_history"), dict) else {},
+                "socio_economic": patient_data.get("socio_economic", {}).copy() if isinstance(patient_data.get("socio_economic"), dict) else {},
+                "additional_info": patient_data.get("additional_info", ""),
+                "conversation_history": patient_data.get("conversation_history", []).copy() if isinstance(patient_data.get("conversation_history"), list) else []
+            }
+            
+            # Add current visit to history
+            visit_history.append(visit_data)
+            patient_data["visit_history"] = visit_history
+            
+            print(f"✅ Archived visit {visit_number} to visit_history")
+            
+        except Exception as e:
+            print(f"❌ Error archiving visit: {e}")
+            import traceback
+            traceback.print_exc()
+    
+    async def _start_new_visit(self, patient_data: Dict[str, Any]):
+        """Start a new visit for a returning patient - reset conversation state but keep basic info"""
+        try:
+            # Archive the previous visit if it exists and hasn't been archived
+            if patient_data.get("current_phase") == "completed" and patient_data.get("assessment_complete", False):
+                await self._archive_current_visit(patient_data)
+            
+            # Get basic demographics to preserve
+            demographics = patient_data.get("demographics", {})
+            if not isinstance(demographics, dict):
+                demographics = {}
+            
+            preserved_name = demographics.get("name", "")
+            preserved_age = demographics.get("age", "")
+            preserved_phone = demographics.get("phone_number", "")
+            
+            # Increment visit number
+            current_visit = patient_data.get("visit_number", 1)
+            new_visit = current_visit + 1
+            patient_data["visit_number"] = new_visit
+            
+            # Initialize new visit data (reset everything except basic info)
+            new_patient_data = self._initialize_patient_data(patient_data.get("patient_id", ""))
+            
+            # Preserve basic demographics
+            new_patient_data["demographics"]["name"] = preserved_name
+            new_patient_data["demographics"]["age"] = preserved_age
+            new_patient_data["demographics"]["phone_number"] = preserved_phone
+            
+            # Preserve visit tracking
+            new_patient_data["visit_number"] = new_visit
+            new_patient_data["visit_history"] = patient_data.get("visit_history", [])
+            
+            # Preserve created_at (first visit date)
+            new_patient_data["created_at"] = patient_data.get("created_at", datetime.now().isoformat())
+            
+            # Update patient_data with new visit data
+            patient_data.update(new_patient_data)
+            
+            # Reset conversation state
+            patient_data["current_phase"] = "onboarding"
+            patient_data["current_question_index"] = 0
+            patient_data["assessment_complete"] = False
+            patient_data["alert_level"] = None
+            patient_data["has_greeted"] = False  # Reset greeting so they get welcome message
+            
+            print(f"✅ Started new visit {new_visit} for patient {patient_data.get('patient_id')}")
+            
+        except Exception as e:
+            print(f"❌ Error starting new visit: {e}")
+            import traceback
+            traceback.print_exc()
     
     def _convert_datetime_to_string(self, obj):
         """Convert datetime objects to strings recursively"""
