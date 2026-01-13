@@ -987,13 +987,13 @@ Now translate: "{name}"
                         # Ask current question
                         response_text = current_question["text"]
                         patient_data["issue_specific_question_index"] = current_issue_index + 1
-            return {
-                "response_text": response_text,
-                "next_phase": "problem_collection",
-                "patient_data": patient_data,
-                "action": "continue_conversation"
-            }
-        else:
+                        return {
+                            "response_text": response_text,
+                            "next_phase": "problem_collection",
+                            "patient_data": patient_data,
+                            "action": "continue_conversation"
+                        }
+                    else:
                         # Skip this question and move to next
                         current_issue_index += 1
                         patient_data["issue_specific_question_index"] = current_issue_index
@@ -1011,24 +1011,27 @@ Now translate: "{name}"
                                 patient_data["issue_specific_questions"][last_question["id"]] = patient_text
                     
                     patient_data["issue_specific_questions_complete"] = True
-                    # Move to regular questionnaire
+                    # Move back to questionnaire and continue from question 10 (index 6)
                     patient_data["current_phase"] = "questionnaire"
-                    patient_data["current_question_index"] = 0
-                    patient_data["current_question_index"] = self._get_next_valid_question_index(0, patient_data)
+                    patient_data["current_question_index"] = 6  # Continue from question 10 (after questions 4-9)
+                    patient_data["current_question_index"] = self._get_next_valid_question_index(6, patient_data)
                     
-                    # Get first regular question
+                    # Get next regular question (question 10 onwards)
                     if patient_data["current_question_index"] < len(self.questions):
-                        first_question = self.questions[patient_data["current_question_index"]]["text"]
-                        response_text = f"شکریہ۔ اب میں آپ سے کچھ ضروری سوالات پوچھوں گی۔\n\n{first_question}"
+                        next_question = self.questions[patient_data["current_question_index"]]["text"]
+                        response_text = next_question
                     else:
-                        response_text = "شکریہ۔ اب میں آپ سے کچھ ضروری سوالات پوچھوں گی۔"
-            
-            return {
-                "response_text": response_text,
+                        # All questions done, move to assessment
+                        patient_data["current_phase"] = "assessment"
+                        assessment_result = await self._handle_assessment_phase("", patient_data)
+                        return assessment_result
+                    
+                    return {
+                        "response_text": response_text,
                         "next_phase": "questionnaire",
-                "patient_data": patient_data,
-                "action": "continue_conversation"
-            }
+                        "patient_data": patient_data,
+                        "action": "continue_conversation"
+                    }
     
         # If we've completed all issue-specific questions
         if detected_issue and issue_questions:
