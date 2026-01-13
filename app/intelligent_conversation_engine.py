@@ -778,12 +778,12 @@ Now translate: "{name}"
                 if "عمر" in missing_info[0]:
                     response_text = f"وعلیکم السلام! میں آپ کی گائناکالوجی کی مدد کرنے کے لئے ہوں۔ آپ کی عمر کتنی ہے؟"
                 else:
-                    response_text = f"وعلیکم السلام! میں آپ کی گائناکالوجی کی مدد کرنے کے لئے ہوں۔ براہ کرم مجھے اپنا {missing_info[0]} بتائیں۔"
+                response_text = f"وعلیکم السلام! میں آپ کی گائناکالوجی کی مدد کرنے کے لئے ہوں۔ براہ کرم مجھے اپنا {missing_info[0]} بتائیں۔"
             else:
                 if "عمر" in missing_info[0]:
                     response_text = f"آپ کی عمر کتنی ہے؟"
-                else:
-                    response_text = f"براہ کرم مجھے اپنا {missing_info[0]} بتائیں۔"
+            else:
+                response_text = f"براہ کرم مجھے اپنا {missing_info[0]} بتائیں۔"
             
             return {
                 "response_text": response_text,
@@ -810,27 +810,27 @@ Now translate: "{name}"
         problem_lower = problem_text.lower()
         
         # Check for each issue type
-        if any(word in problem_lower for word in ["sugar", "shakkar", "diabetes", "diabetic", "sugar tez", "sugar zyada"]):
+        if any(word in problem_lower for word in ["شوگر", "shakkar", "diabetes", "diabetic", "شوگر تیز", "شوگر زیادہ"]):
             return "sugar_tez"
-        elif any(word in problem_lower for word in ["blood pressure", "bp", "pressure", "tez", "kam", "high bp", "low bp"]):
+        elif any(word in problem_lower for word in ["بلڈ پریشر", "bp", "pressure", "tez", "کم", "بلوڈ پریشر زیادہ", "بلوڈ پریشر کم"]):
             return "blood_pressure"
-        elif any(word in problem_lower for word in ["khoon ki kami", "anemia", "khoon kam", "hemoglobin kam", "hb kam"]):
+        elif any(word in problem_lower for word in ["خون کی کمی", "anemia", "خون کی کمی", "hemoglobin کم", "hb کم"]):
             return "khoon_ki_kami"
-        elif any(word in problem_lower for word in ["pani par", "water leak", "amniotic", "pani nikal", "pani gir"]):
+        elif any(word in problem_lower for word in ["پانی پار رہا", "water leak", "amniotic", "پانی نکل", "پانی گر"]):
             return "pani_par_raha"
-        elif any(word in problem_lower for word in ["khoon par", "bleeding", "blood", "khoon aa", "khoon nikal"]):
+        elif any(word in problem_lower for word in ["خون پار رہا", "bleeding", "blood", "خون آ", "خون نکل"]):
             return "khoon_par_raha"
-        elif any(word in problem_lower for word in ["dard", "pain", "takleef", "dukh"]):
+        elif any(word in problem_lower for word in ["درد", "pain", "takleef", "دھک"]):
             return "dard"
-        elif any(word in problem_lower for word in ["ulti", "vomiting", "qay", "vomit"]):
+        elif any(word in problem_lower for word in ["اطلاق", "vomiting", "qay", "vomit"]):
             return "ultian"
-        elif any(word in problem_lower for word in ["bukhar", "fever", "tap", "temperature"]):
+        elif any(word in problem_lower for word in ["بخار", "fever", "tap", "temperature"]):
             return "bukhar"
-        elif any(word in problem_lower for word in ["harkat nahi", "movement nahi", "bachy ki harkat", "fetal movement"]):
+        elif any(word in problem_lower for word in ["حرکت نہیں", "movement nahi", "بچے کی حرکت", "fetal movement"]):
             return "harkat_nahi"
-        elif any(word in problem_lower for word in ["growth ruk", "growth nahi", "bachy ki growth", "fetal growth"]):
+        elif any(word in problem_lower for word in ["گروٹھ رک", "growth nahi", "بچے کی گروٹھ", "fetal growth"]):
             return "growth_ruki"
-        elif any(word in problem_lower for word in ["checkup", "check up", "muaaiana", "examination", "normal check"]):
+        elif any(word in problem_lower for word in ["چیک اپ", "check up", "معیاری چیک اپ", "examination", "normal check"]):
             return "checkup"
         else:
             return "checkup"  # Default to checkup if no specific issue detected
@@ -987,13 +987,13 @@ Now translate: "{name}"
                         # Ask current question
                         response_text = current_question["text"]
                         patient_data["issue_specific_question_index"] = current_issue_index + 1
-                        return {
-                            "response_text": response_text,
-                            "next_phase": "problem_collection",
-                            "patient_data": patient_data,
-                            "action": "continue_conversation"
-                        }
-                    else:
+            return {
+                "response_text": response_text,
+                "next_phase": "problem_collection",
+                "patient_data": patient_data,
+                "action": "continue_conversation"
+            }
+        else:
                         # Skip this question and move to next
                         current_issue_index += 1
                         patient_data["issue_specific_question_index"] = current_issue_index
@@ -1025,13 +1025,13 @@ Now translate: "{name}"
                         patient_data["current_phase"] = "assessment"
                         assessment_result = await self._handle_assessment_phase("", patient_data)
                         return assessment_result
-                    
-                    return {
-                        "response_text": response_text,
+            
+            return {
+                "response_text": response_text,
                         "next_phase": "questionnaire",
-                        "patient_data": patient_data,
-                        "action": "continue_conversation"
-                    }
+                "patient_data": patient_data,
+                "action": "continue_conversation"
+            }
     
         # If we've completed all issue-specific questions
         if detected_issue and issue_questions:
@@ -1069,7 +1069,7 @@ Now translate: "{name}"
                     }
                 else:
                     # All questions done, move to assessment
-                    patient_data["current_phase"] = "assessment"
+            patient_data["current_phase"] = "assessment"
                     assessment_result = await self._handle_assessment_phase("", patient_data)
                     return assessment_result
         
@@ -1104,13 +1104,13 @@ Now translate: "{name}"
                     response_text = f"شکریہ۔ اب میں آپ سے کچھ ضروری سوالات پوچھوں گی۔\n\n{first_question}"
                 else:
                     response_text = "شکریہ۔ اب میں آپ سے کچھ ضروری سوالات پوچھوں گی۔"
-                
-                return {
+        
+        return {
                     "response_text": response_text,
                     "next_phase": "questionnaire",
-                    "patient_data": patient_data,
-                    "action": "continue_conversation"
-                }
+            "patient_data": patient_data,
+            "action": "continue_conversation"
+        }
             else:
                 # Ask for problem if not collected yet
                 response_text = "براہ کرم مجھے بتائیں کہ آپ کو کیا مسئلہ ہے؟ آپ کی کیا تکلیف ہے؟"
@@ -1946,7 +1946,7 @@ Now translate: "{name}"
             if visit_number > 1:
                 response_text = f"وعلیکم السلام! آپ کا دوبارہ خیرمقدم ہے۔ یہ آپ کا {visit_number}واں دورہ ہے۔ براہ کرم مجھے اپنا نام بتائیں۔"
             else:
-                response_text = "وعلیکم السلام! میں آپ کی گائناکالوجی کی مدد کرنے کے لئے ہوں۔ براہ کرم مجھے اپنا نام بتائیں۔"
+            response_text = "وعلیکم السلام! میں آپ کی گائناکالوجی کی مدد کرنے کے لئے ہوں۔ براہ کرم مجھے اپنا نام بتائیں۔"
         else:
             response_text = "براہ کرم مجھے اپنا نام بتائیں۔"
         
