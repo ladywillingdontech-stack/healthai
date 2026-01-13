@@ -302,6 +302,10 @@ class IntelligentConversationEngine:
                 "regular_periods": ""
             },
             "problem_description": "",
+            "detected_issue": "",  # Store which specific issue was detected
+            "issue_specific_questions": {},  # Store answers to issue-specific questions
+            "issue_specific_question_index": 0,  # Track which issue-specific question we're on
+            "issue_specific_questions_complete": False,  # Flag to track if issue-specific questions are done
             "current_pregnancy": {
                 "pregnancy_month": "",
                 "trimester": "",
@@ -774,12 +778,12 @@ Now translate: "{name}"
                 if "عمر" in missing_info[0]:
                     response_text = f"وعلیکم السلام! میں آپ کی گائناکالوجی کی مدد کرنے کے لئے ہوں۔ آپ کی عمر کتنی ہے؟"
                 else:
-                    response_text = f"وعلیکم السلام! میں آپ کی گائناکالوجی کی مدد کرنے کے لئے ہوں۔ براہ کرم مجھے اپنا {missing_info[0]} بتائیں۔"
+                response_text = f"وعلیکم السلام! میں آپ کی گائناکالوجی کی مدد کرنے کے لئے ہوں۔ براہ کرم مجھے اپنا {missing_info[0]} بتائیں۔"
             else:
                 if "عمر" in missing_info[0]:
                     response_text = f"آپ کی عمر کتنی ہے؟"
-                else:
-                    response_text = f"براہ کرم مجھے اپنا {missing_info[0]} بتائیں۔"
+            else:
+                response_text = f"براہ کرم مجھے اپنا {missing_info[0]} بتائیں۔"
             
             return {
                 "response_text": response_text,
@@ -801,30 +805,263 @@ Now translate: "{name}"
                 "action": "continue_conversation"
             }
     
-    async def _handle_problem_collection_phase(self, patient_text: str, patient_data: Dict[str, Any]) -> Dict[str, Any]:
-        """Handle problem collection phase - collect presenting complaint"""
+    def _detect_issue_type(self, problem_text: str) -> str:
+        """Detect which specific issue the patient mentioned"""
+        problem_lower = problem_text.lower()
         
-        if not patient_data.get("problem_description"):
-            # Extract problem from response
-            if patient_text.strip():
-                patient_data["problem_description"] = patient_text.strip()
-                print(f"✅ Saved problem description: {patient_data['problem_description']}")
+        # Check for each issue type
+        if any(word in problem_lower for word in ["sugar", "shakkar", "diabetes", "diabetic", "sugar tez", "sugar zyada"]):
+            return "sugar_tez"
+        elif any(word in problem_lower for word in ["blood pressure", "bp", "pressure", "tez", "kam", "high bp", "low bp"]):
+            return "blood_pressure"
+        elif any(word in problem_lower for word in ["khoon ki kami", "anemia", "khoon kam", "hemoglobin kam", "hb kam"]):
+            return "khoon_ki_kami"
+        elif any(word in problem_lower for word in ["pani par", "water leak", "amniotic", "pani nikal", "pani gir"]):
+            return "pani_par_raha"
+        elif any(word in problem_lower for word in ["khoon par", "bleeding", "blood", "khoon aa", "khoon nikal"]):
+            return "khoon_par_raha"
+        elif any(word in problem_lower for word in ["dard", "pain", "takleef", "dukh"]):
+            return "dard"
+        elif any(word in problem_lower for word in ["ulti", "vomiting", "qay", "vomit"]):
+            return "ultian"
+        elif any(word in problem_lower for word in ["bukhar", "fever", "tap", "temperature"]):
+            return "bukhar"
+        elif any(word in problem_lower for word in ["harkat nahi", "movement nahi", "bachy ki harkat", "fetal movement"]):
+            return "harkat_nahi"
+        elif any(word in problem_lower for word in ["growth ruk", "growth nahi", "bachy ki growth", "fetal growth"]):
+            return "growth_ruki"
+        elif any(word in problem_lower for word in ["checkup", "check up", "muaaiana", "examination", "normal check"]):
+            return "checkup"
+        else:
+            return "checkup"  # Default to checkup if no specific issue detected
+    
+    def _get_issue_specific_questions(self, issue_type: str, patient_data: Dict[str, Any]) -> List[Dict[str, Any]]:
+        """Get issue-specific questions based on detected issue"""
+        questions = []
+        pregnancy_number = patient_data.get("demographics", {}).get("pregnancy_number", 1)
+        is_2nd_or_more = pregnancy_number and int(str(pregnancy_number).strip()) >= 2 if str(pregnancy_number).strip().isdigit() else False
+        
+        if issue_type == "sugar_tez":
+            questions = [
+                {"id": "sugar_1", "text": "کب سے ہو رہا یہ مسئلہ؟", "field": "issue_specific.sugar.duration"},
+                {"id": "sugar_2", "text": "کونسی دوا لی رہیں ہیں؟", "field": "issue_specific.sugar.medications"},
+                {"id": "sugar_3", "text": "ابی کنٹرول کیسا ہے؟", "field": "issue_specific.sugar.control"},
+                {"id": "sugar_4", "text": "بچے پر شوگر کے کوئی اثرات ہوئے ہیں؟", "field": "issue_specific.sugar.baby_effects"}
+            ]
+        elif issue_type == "blood_pressure":
+            questions = [
+                {"id": "bp_1", "text": "کب سے ہو رہا ہے یہ مسئلہ؟", "field": "issue_specific.bp.duration"},
+                {"id": "bp_2", "text": "کونسی دوا لی رہیں ہیں؟", "field": "issue_specific.bp.medications"},
+                {"id": "bp_3", "text": "کنٹرول رہتا ہے؟", "field": "issue_specific.bp.control"},
+                {"id": "bp_4", "text": "سر میں درد، آنکھوں کے آگے اندھیرا، سینے میں درد یا الٹی تو نہیں آتی؟", "field": "issue_specific.bp.symptoms"},
+                {"id": "bp_5", "text": "پیشاب یا خون کے ٹیسٹ ہوئے ہیں؟", "field": "issue_specific.bp.tests"},
+                {"id": "bp_6", "text": "بچے کی گروتھ پر کوئی اثر تو نہیں ہوا؟", "field": "issue_specific.bp.baby_growth"}
+            ]
+        elif issue_type == "khoon_ki_kami":
+            questions = [
+                {"id": "anemia_1", "text": "کب سے ہو رہا یہ مسئلہ؟", "field": "issue_specific.anemia.duration"},
+            ]
+            if is_2nd_or_more:
+                questions.append({"id": "anemia_2", "text": "پچھلے حمل میں خون کی کمی تھی؟", "field": "issue_specific.anemia.previous_pregnancy"})
+            questions.extend([
+                {"id": "anemia_3", "text": "آئرن کی گولیاں، کالے ٹیکے یا خون لگا ہے کبھی؟", "field": "issue_specific.anemia.treatment"},
+                {"id": "anemia_4", "text": "اگر ٹیکے یا خون لگا ہے تو کب لگا تھا؟", "field": "issue_specific.anemia.treatment_date", "condition": "if_treatment_yes"},
+                {"id": "anemia_5", "text": "حمل یا ماہواری میں خون زیادہ تو نہیں پڑتا؟", "field": "issue_specific.anemia.bleeding"},
+                {"id": "anemia_6", "text": "کوئی لمبا بخار یا TB تو نہیں ہوا؟", "field": "issue_specific.anemia.fever_tb"},
+                {"id": "anemia_7", "text": "لمبے عرصے سے پیٹ تو نہیں خراب رہتا؟", "field": "issue_specific.anemia.stomach"},
+                {"id": "anemia_8", "text": "خاندان میں کسی کو خون لگتا ہو؟", "field": "issue_specific.anemia.family_history"}
+            ])
+        elif issue_type == "pani_par_raha":
+            questions = [
+                {"id": "water_1", "text": "کتنی دیر سے پڑ رہا ہے؟", "field": "issue_specific.water.duration"},
+                {"id": "water_2", "text": "پانی بہت زیادہ پڑ رہا ہے یا تھوڑا تھوڑا؟ شلوار کے پہنچے تک آیا ہے؟", "field": "issue_specific.water.amount"},
+                {"id": "water_3", "text": "اگر بہت زیادہ پڑ رہا ہے تو کتنے پیڈ بھر چکی ہیں؟", "field": "issue_specific.water.pads", "condition": "if_heavy"},
+                {"id": "water_4", "text": "کوئی درد، یا خون پڑا ہو یا بخار ہو ساتھ؟", "field": "issue_specific.water.symptoms"}
+            ]
+        elif issue_type == "khoon_par_raha":
+            questions = [
+                {"id": "bleeding_1", "text": "کب سے پڑ رہا ہے؟", "field": "issue_specific.bleeding.duration"},
+                {"id": "bleeding_2", "text": "کتنے پیڈ بھر چکی ہیں؟", "field": "issue_specific.bleeding.pads"},
+                {"id": "bleeding_3", "text": "ساتھ درد بھی ہو رہی ہے؟", "field": "issue_specific.bleeding.pain"},
+                {"id": "bleeding_4", "text": "BP تیز ہوتا ہے؟", "field": "issue_specific.bleeding.bp"},
+                {"id": "bleeding_5", "text": "بچے کی حرکت ٹھیک محسوس ہو رہی ہے؟", "field": "issue_specific.bleeding.movement"},
+                {"id": "bleeding_6", "text": "آنکھوں کے آگے اندھیرا یا چکر چکر تو نہیں آ رہے؟", "field": "issue_specific.bleeding.dizziness"}
+            ]
+        elif issue_type == "dard":
+            questions = [
+                {"id": "pain_1", "text": "کہاں پر درد ہو رہی ہے؟", "field": "issue_specific.pain.location"},
+                {"id": "pain_2", "text": "کب سے ہو رہی ہے درد؟", "field": "issue_specific.pain.duration"},
+                {"id": "pain_3", "text": "اگر نالوں میں ہو رہی ہے تو مسلسل درد ہو رہی ہے یا رک رک کر؟", "field": "issue_specific.pain.continuous", "condition": "if_naalon"}
+            ]
+        elif issue_type == "ultian":
+            questions = [
+                {"id": "vomit_1", "text": "کب سے آ رہیں ہیں؟", "field": "issue_specific.vomiting.duration"},
+                {"id": "vomit_2", "text": "دن میں کتنی الٹیاں کرتی ہیں؟", "field": "issue_specific.vomiting.frequency"},
+                {"id": "vomit_3", "text": "کونسی دوا استعمال کرتی ہیں؟", "field": "issue_specific.vomiting.medications"},
+                {"id": "vomit_4", "text": "BP ٹھیک رہتا ہے؟", "field": "issue_specific.vomiting.bp"}
+            ]
+        elif issue_type == "bukhar":
+            questions = [
+                {"id": "fever_1", "text": "کب سے ہو رہا ہے؟", "field": "issue_specific.fever.duration"},
+                {"id": "fever_2", "text": "تیز ہے یا ہلکا؟", "field": "issue_specific.fever.severity"},
+                {"id": "fever_3", "text": "کپکپی کے ساتھ ہوتا ہے؟", "field": "issue_specific.fever.shivering"},
+                {"id": "fever_4", "text": "ساتھ کوئی اور پیشاب، گلے یا پیٹ کا مسئلہ تو نہیں ہے؟", "field": "issue_specific.fever.other_symptoms"},
+                {"id": "fever_5", "text": "پانی تو نہیں پڑا؟", "field": "issue_specific.fever.water_leak"}
+            ]
+        elif issue_type == "harkat_nahi":
+            questions = [
+                {"id": "movement_1", "text": "کب سے نہیں ہو رہی؟", "field": "issue_specific.movement.duration"},
+                {"id": "movement_2", "text": "ایک گھنٹے میں کتنی دفعہ حرکت محسوس ہوئی؟", "field": "issue_specific.movement.frequency"}
+            ]
+        elif issue_type == "growth_ruki":
+            questions = [
+                {"id": "growth_1", "text": "کب سے رکی ہے؟", "field": "issue_specific.growth.duration"},
+                {"id": "growth_2", "text": "اس کے لیے کوئی دوائیں آپ استعمال کر رہیں ہیں؟", "field": "issue_specific.growth.medications"},
+                {"id": "growth_3", "text": "آپکو شوگر یا بلڈ پریشر تیز ہونے کا مسئلہ تو نہیں؟", "field": "issue_specific.growth.bp_sugar"}
+            ]
+        # For checkup, no issue-specific questions, go directly to regular questionnaire
+        
+        return questions
+    
+    async def _handle_problem_collection_phase(self, patient_text: str, patient_data: Dict[str, Any]) -> Dict[str, Any]:
+        """Handle problem collection phase - collect presenting complaint and ask issue-specific questions"""
+        
+        # Initialize issue_specific_questions if not exists
+        if "issue_specific_questions" not in patient_data:
+            patient_data["issue_specific_questions"] = {}
+        if "issue_specific_question_index" not in patient_data:
+            patient_data["issue_specific_question_index"] = 0
+        if "issue_specific_questions_complete" not in patient_data:
+            patient_data["issue_specific_questions_complete"] = False
+        
+        # If issue-specific questions are complete, move back to regular questionnaire (continue from question 10)
+        if patient_data.get("issue_specific_questions_complete", False):
+            patient_data["current_phase"] = "questionnaire"
+            patient_data["current_question_index"] = 6  # Continue from question 10 (after questions 4-9)
+            patient_data["current_question_index"] = self._get_next_valid_question_index(6, patient_data)
+            return await self._handle_questionnaire_phase(patient_text, patient_data)
+        
+        # Check if we're in the middle of asking issue-specific questions
+        detected_issue = patient_data.get("detected_issue", "")
+        issue_questions = []
+        if detected_issue:
+            issue_questions = self._get_issue_specific_questions(detected_issue, patient_data)
+            current_issue_index = patient_data.get("issue_specific_question_index", 0)
             
-            # Check if we have problem now
-            if patient_data.get("problem_description"):
-                # Problem collected, move to questionnaire and ask first question
+            # If we have issue-specific questions and haven't completed them
+            if issue_questions and current_issue_index < len(issue_questions):
+                # Save previous answer if this is not the first question and we have patient text
+                if current_issue_index > 0 and patient_text.strip():
+                    prev_question = issue_questions[current_issue_index - 1]
+                    # Extract and save answer
+                    field_path = prev_question.get("field", "")
+                    if field_path:
+                        self._save_to_field(patient_data, field_path, patient_text)
+                        patient_data["issue_specific_questions"][prev_question["id"]] = patient_text
+                
+                # Find next question to ask (skip conditional ones if condition not met)
+                while current_issue_index < len(issue_questions):
+                    current_question = issue_questions[current_issue_index]
+                    
+                    # Check if this question has a condition
+                    condition = current_question.get("condition")
+                    should_ask = True
+                    if condition:
+                        if condition == "if_treatment_yes":
+                            # Check if previous answer mentioned treatment
+                            prev_answer = patient_data.get("issue_specific_questions", {}).get("anemia_3", "")
+                            if "nahi" in prev_answer.lower() or "no" in prev_answer.lower() or not prev_answer or "na" in prev_answer.lower():
+                                should_ask = False
+                        elif condition == "if_heavy":
+                            # Check if previous answer mentioned heavy leakage
+                            prev_answer = patient_data.get("issue_specific_questions", {}).get("water_2", "")
+                            if "thora" in prev_answer.lower() or "kam" in prev_answer.lower() or "thoda" in prev_answer.lower():
+                                should_ask = False
+                        elif condition == "if_naalon":
+                            # Check if pain location is in naalon (lower abdomen/pelvis)
+                            prev_answer = patient_data.get("issue_specific_questions", {}).get("pain_1", "")
+                            if "naalon" not in prev_answer.lower() and "lower" not in prev_answer.lower() and "pait" not in prev_answer.lower():
+                                should_ask = False
+                    
+                    if should_ask:
+                        # Ask current question
+                        response_text = current_question["text"]
+                        patient_data["issue_specific_question_index"] = current_issue_index + 1
+            return {
+                "response_text": response_text,
+                "next_phase": "problem_collection",
+                "patient_data": patient_data,
+                "action": "continue_conversation"
+            }
+        else:
+                        # Skip this question and move to next
+                        current_issue_index += 1
+                        patient_data["issue_specific_question_index"] = current_issue_index
+                
+                # If we've gone through all questions, save last answer and move to questionnaire
+                if current_issue_index >= len(issue_questions):
+                    # Save last answer if we have patient text
+                    if patient_text.strip() and issue_questions:
+                        last_question_index = current_issue_index - 1
+                        if last_question_index >= 0 and last_question_index < len(issue_questions):
+                            last_question = issue_questions[last_question_index]
+                            field_path = last_question.get("field", "")
+                            if field_path:
+                                self._save_to_field(patient_data, field_path, patient_text)
+                                patient_data["issue_specific_questions"][last_question["id"]] = patient_text
+                    
+                    patient_data["issue_specific_questions_complete"] = True
+                    # Move to regular questionnaire
+                    patient_data["current_phase"] = "questionnaire"
+                    patient_data["current_question_index"] = 0
+                    patient_data["current_question_index"] = self._get_next_valid_question_index(0, patient_data)
+                    
+                    # Get first regular question
+                    if patient_data["current_question_index"] < len(self.questions):
+                        first_question = self.questions[patient_data["current_question_index"]]["text"]
+                        response_text = f"شکریہ۔ اب میں آپ سے کچھ ضروری سوالات پوچھوں گی۔\n\n{first_question}"
+                    else:
+                        response_text = "شکریہ۔ اب میں آپ سے کچھ ضروری سوالات پوچھوں گی۔"
+            
+            return {
+                "response_text": response_text,
+                        "next_phase": "questionnaire",
+                "patient_data": patient_data,
+                "action": "continue_conversation"
+            }
+    
+        # If we've completed all issue-specific questions
+        if detected_issue and issue_questions:
+            current_issue_index = patient_data.get("issue_specific_question_index", 0)
+            
+            # If we've reached the end, save last answer and move to questionnaire
+            if current_issue_index >= len(issue_questions):
+                # Save last answer if we have patient text
+                if patient_text.strip() and issue_questions:
+                    # Find the last question that was asked (index - 1)
+                    last_question_index = current_issue_index - 1
+                    if last_question_index >= 0 and last_question_index < len(issue_questions):
+                        last_question = issue_questions[last_question_index]
+                        field_path = last_question.get("field", "")
+                        if field_path:
+                            self._save_to_field(patient_data, field_path, patient_text)
+                            patient_data["issue_specific_questions"][last_question["id"]] = patient_text
+                
+                patient_data["issue_specific_questions_complete"] = True
+                # Move back to questionnaire and continue from question 10 (index 6)
                 patient_data["current_phase"] = "questionnaire"
-                patient_data["current_question_index"] = 0
+                patient_data["current_question_index"] = 6  # Continue from question 10 (after questions 4-9)
+                patient_data["current_question_index"] = self._get_next_valid_question_index(6, patient_data)
                 
-                # Ensure starting index is valid (skip obstetric history if first pregnancy)
-                patient_data["current_question_index"] = self._get_next_valid_question_index(0, patient_data)
-                
-                # Get first question
+                # Get next regular question (question 10 onwards)
                 if patient_data["current_question_index"] < len(self.questions):
-                    first_question = self.questions[patient_data["current_question_index"]]["text"]
-                    response_text = f"شکریہ۔ اب میں آپ سے کچھ ضروری سوالات پوچھوں گی۔\n\n{first_question}"
+                    next_question = self.questions[patient_data["current_question_index"]]["text"]
+                    response_text = next_question
                 else:
-                    response_text = "شکریہ۔ اب میں آپ سے کچھ ضروری سوالات پوچھوں گی۔"
+                    # All questions done, move to assessment
+            patient_data["current_phase"] = "assessment"
+                    assessment_result = await self._handle_assessment_phase("", patient_data)
+                    return assessment_result
                 
                 return {
                     "response_text": response_text,
@@ -832,6 +1069,45 @@ Now translate: "{name}"
                     "patient_data": patient_data,
                     "action": "continue_conversation"
                 }
+        
+        # If problem not collected yet
+        if not patient_data.get("problem_description"):
+            # Extract problem from response
+            if patient_text.strip():
+                problem_text = patient_text.strip()
+                patient_data["problem_description"] = problem_text
+                print(f"✅ Saved problem description: {patient_data['problem_description']}")
+                
+                # Detect issue type (but don't ask issue-specific questions yet)
+                detected_issue = self._detect_issue_type(problem_text)
+                patient_data["detected_issue"] = detected_issue
+                print(f"✅ Detected issue type: {detected_issue}")
+                
+                # Initialize issue-specific questions tracking
+                if "issue_specific_questions" not in patient_data:
+                    patient_data["issue_specific_questions"] = {}
+                if "issue_specific_question_index" not in patient_data:
+                    patient_data["issue_specific_question_index"] = 0
+                if "issue_specific_questions_complete" not in patient_data:
+                    patient_data["issue_specific_questions_complete"] = False
+                
+                # Move to questionnaire and start with question 4 (index 0)
+                patient_data["current_phase"] = "questionnaire"
+                patient_data["current_question_index"] = 0
+                patient_data["current_question_index"] = self._get_next_valid_question_index(0, patient_data)
+                
+                if patient_data["current_question_index"] < len(self.questions):
+                    first_question = self.questions[patient_data["current_question_index"]]["text"]
+                    response_text = f"شکریہ۔ اب میں آپ سے کچھ ضروری سوالات پوچھوں گی۔\n\n{first_question}"
+                else:
+                    response_text = "شکریہ۔ اب میں آپ سے کچھ ضروری سوالات پوچھوں گی۔"
+        
+        return {
+                    "response_text": response_text,
+                    "next_phase": "questionnaire",
+            "patient_data": patient_data,
+            "action": "continue_conversation"
+        }
             else:
                 # Ask for problem if not collected yet
                 response_text = "براہ کرم مجھے بتائیں کہ آپ کو کیا مسئلہ ہے؟ آپ کی کیا تکلیف ہے؟"
@@ -842,10 +1118,10 @@ Now translate: "{name}"
                     "action": "continue_conversation"
                 }
         else:
-            # Problem already collected, move to questionnaire
+            # Problem already collected but issue-specific questions not handled properly
+            # This shouldn't happen, but handle it gracefully
             patient_data["current_phase"] = "questionnaire"
             patient_data["current_question_index"] = 0
-            # Ensure starting index is valid (skip obstetric history if first pregnancy)
             patient_data["current_question_index"] = self._get_next_valid_question_index(0, patient_data)
             return await self._handle_questionnaire_phase(patient_text, patient_data)
     
@@ -1425,6 +1701,28 @@ Now translate: "{name}"
         # Note: Extraction and index increment already happened in process_patient_response (unless we handled follow-up above)
         current_question_index = patient_data.get("current_question_index", 0)
         
+        # Check if we've completed questions 4-9 (indices 0-5) and need to ask issue-specific questions
+        # Question 9 is at index 5, so after answering it, current_question_index would be 6
+        if current_question_index == 6:
+            # We've just completed question 9, check if we need to ask issue-specific questions
+            detected_issue = patient_data.get("detected_issue", "")
+            issue_questions_complete = patient_data.get("issue_specific_questions_complete", False)
+            
+            if detected_issue and not issue_questions_complete and detected_issue != "checkup":
+                # Get issue-specific questions
+                issue_questions = self._get_issue_specific_questions(detected_issue, patient_data)
+                
+                if issue_questions:
+                    # Initialize issue-specific questions tracking if not already done
+                    if "issue_specific_questions" not in patient_data:
+                        patient_data["issue_specific_questions"] = {}
+                    if "issue_specific_question_index" not in patient_data:
+                        patient_data["issue_specific_question_index"] = 0
+                    
+                    # Move to problem_collection phase temporarily to ask issue-specific questions
+                    patient_data["current_phase"] = "problem_collection"
+                    return await self._handle_problem_collection_phase("", patient_data)
+        
         # Ensure we have a valid question index (skip obstetric history if needed)
         current_question_index = self._get_next_valid_question_index(current_question_index, patient_data)
         patient_data["current_question_index"] = current_question_index
@@ -1645,7 +1943,7 @@ Now translate: "{name}"
             if visit_number > 1:
                 response_text = f"وعلیکم السلام! آپ کا دوبارہ خیرمقدم ہے۔ یہ آپ کا {visit_number}واں دورہ ہے۔ براہ کرم مجھے اپنا نام بتائیں۔"
             else:
-                response_text = "وعلیکم السلام! میں آپ کی گائناکالوجی کی مدد کرنے کے لئے ہوں۔ براہ کرم مجھے اپنا نام بتائیں۔"
+            response_text = "وعلیکم السلام! میں آپ کی گائناکالوجی کی مدد کرنے کے لئے ہوں۔ براہ کرم مجھے اپنا نام بتائیں۔"
         else:
             response_text = "براہ کرم مجھے اپنا نام بتائیں۔"
         
@@ -1734,6 +2032,21 @@ Now translate: "{name}"
             
             ### 2. PRESENTING COMPLAINT
             Chief Complaint: {emr_patient_data.get('problem_description', 'Not specified')}
+            
+            **Issue-Specific Follow-up Details:**
+            If the patient reported a specific issue (sugar/diabetes, blood pressure, anemia/khoon ki kami, bleeding/khoon par raha, water leakage/pani par raha, pain/dard, vomiting/ultian, fever/bukhar, reduced fetal movement, or growth restriction), you MUST include ALL the detailed follow-up questions and answers collected for that specific issue. 
+            
+            Look for the 'issue_specific' field in the patient data structure. It contains detailed information such as:
+            - Duration of the issue
+            - Medications being taken
+            - Control/management status
+            - Symptoms experienced
+            - Tests performed
+            - Impact on baby/fetus
+            - Treatment history
+            - Any other relevant details specific to that issue
+            
+            Present this information in a structured format under the Presenting Complaint section. Translate all Urdu/Roman Urdu responses to professional English medical terminology. If no issue-specific questions were asked (e.g., for routine checkup), you can skip this subsection.
             
             ### 3. CURRENT PREGNANCY (if applicable)
             Include all details: Pregnancy month, Conception method, Intended/Unintended, Discovery method, Tests done, Early symptoms, Fetal movement, Scans, Complications, Supplements, etc.
