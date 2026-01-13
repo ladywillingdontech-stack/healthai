@@ -36,7 +36,7 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=[
         "http://localhost:3000",  # Local development
-        "https://your-frontend-domain.railway.app",  # Update this with your actual frontend URL
+        "https://healthai-portal-production.up.railway.app",  # Update this with your actual frontend URL
         "https://your-frontend-domain.netlify.app",  # If using Netlify
         "https://your-frontend-domain.vercel.app",   # If using Vercel
     ],
