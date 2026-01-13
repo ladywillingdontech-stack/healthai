@@ -2,6 +2,7 @@ import openai
 import requests
 import tempfile
 import os
+import asyncio
 from typing import Optional
 from app.config import settings
 import httpx
@@ -13,6 +14,9 @@ class VoiceProcessor:
         openai.api_key = settings.openai_api_key
         self.elevenlabs_api_key = settings.elevenlabs_api_key
         self.elevenlabs_voice_id = settings.elevenlabs_voice_id
+        
+        # Rate limiting semaphore for OpenAI Whisper API calls
+        self.whisper_semaphore = asyncio.Semaphore(20)  # Max 20 concurrent Whisper calls
 
     async def speech_to_text(self, audio_path: str) -> str:
         """Convert audio to text using OpenAI Whisper"""
@@ -33,26 +37,47 @@ class VoiceProcessor:
                 temp_file_path = audio_path
             
             try:
-                # Transcribe using Whisper with better Urdu support
-                with open(temp_file_path, "rb") as audio_file:
-                    transcript = openai.audio.transcriptions.create(
-                        model="whisper-1",
-                        file=audio_file,
-                        language="ur",  # Urdu language code
-                        prompt="This is a medical conversation in Urdu. Common words: نام، عمر، جنس، فون، درد، بخار، کھانسی، اُلٹی، خون، تکلیف، ڈاکٹر، ہسپتال، دوائی، علاج"
+                # Transcribe using Whisper with better Urdu support (async with rate limiting)
+                async with self.whisper_semaphore:
+                    loop = asyncio.get_event_loop()
+                    
+                    def _whisper_call():
+                        with open(temp_file_path, "rb") as audio_file:
+                            return openai.audio.transcriptions.create(
+                                model="whisper-1",
+                                file=audio_file,
+                                language="ur",  # Urdu language code
+                                prompt="This is a medical conversation in Urdu. Common words: نام، عمر، جنس، فون، درد، بخار، کھانسی، اُلٹی، خون، تکلیف، ڈاکٹر، ہسپتال، دوائی، علاج"
+                            )
+                    
+                    transcript = await asyncio.wait_for(
+                        loop.run_in_executor(None, _whisper_call),
+                        timeout=30.0
                     )
                 
                 return transcript.text
                 
+            except asyncio.TimeoutError:
+                print(f"⚠️ Whisper transcription timed out")
+                return "معذرت، میں آپ کی آواز سمجھ نہیں سکا۔"
             except Exception as e:
                 print(f"Whisper transcription failed: {e}")
                 # Try without language specification as fallback
                 try:
-                    with open(temp_file_path, "rb") as audio_file:
-                        transcript = openai.audio.transcriptions.create(
-                            model="whisper-1",
-                            file=audio_file,
-                            prompt="This is a medical conversation in Urdu. Common words: نام، عمر، جنس، فون، درد، بخار، کھانسی، اُلٹی، خون، تکلیف، ڈاکٹر، ہسپتال، دوائی، علاج"
+                    async with self.whisper_semaphore:
+                        loop = asyncio.get_event_loop()
+                        
+                        def _whisper_fallback():
+                            with open(temp_file_path, "rb") as audio_file:
+                                return openai.audio.transcriptions.create(
+                                    model="whisper-1",
+                                    file=audio_file,
+                                    prompt="This is a medical conversation in Urdu. Common words: نام، عمر، جنس، فون، درد، بخار، کھانسی، اُلٹی، خون، تکلیف، ڈاکٹر، ہسپتال، دوائی، علاج"
+                                )
+                        
+                        transcript = await asyncio.wait_for(
+                            loop.run_in_executor(None, _whisper_fallback),
+                            timeout=30.0
                         )
                     return transcript.text
                 except Exception as e2:
