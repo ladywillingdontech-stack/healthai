@@ -506,6 +506,57 @@ class IntelligentConversationEngine:
         else:
             return await self._handle_general_response(patient_text, patient_data)
     
+    async def _translate_name_to_english(self, name: str) -> str:
+        """Translate patient name from Urdu/Roman Urdu to English"""
+        if not name or not name.strip():
+            return name
+        
+        # If name is already in English (only contains ASCII letters, spaces, hyphens), return as is
+        if all(ord(c) < 128 or c in [' ', '-', "'"] for c in name):
+            # Capitalize properly
+            return ' '.join(word.capitalize() for word in name.strip().split())
+        
+        # Use OpenAI to translate name to English
+        if settings.openai_api_key and len(settings.openai_api_key) > 10:
+            try:
+                prompt = f"""Translate this name to English. The name might be in Urdu script or Roman Urdu (English transliteration).
+
+Name: "{name}"
+
+Rules:
+- If it's already in English (like "sadia", "fatima", "ali"), return it with proper capitalization (e.g., "Sadia", "Fatima", "Ali")
+- If it's in Urdu script or Roman Urdu, translate it to standard English spelling
+- Return ONLY the English name, no explanations, no quotes
+- Use standard English name spellings (e.g., "Sadia" not "Sadiya", "Fatima" not "Fatimah" unless that's the actual spelling)
+
+Examples:
+- "صادیہ" or "sadia" → "Sadia"
+- "فاطمہ" or "fatima" → "Fatima"
+- "علی" or "ali" → "Ali"
+- "مریم" or "maryam" → "Maryam"
+
+Now translate: "{name}"
+"""
+                response = openai.chat.completions.create(
+                    model="gpt-4",
+                    messages=[{"role": "user", "content": prompt}],
+                    temperature=0.1,
+                    max_tokens=50
+                )
+                
+                translated_name = response.choices[0].message.content.strip()
+                # Remove quotes if present
+                translated_name = translated_name.strip('"').strip("'").strip()
+                # Capitalize properly
+                translated_name = ' '.join(word.capitalize() for word in translated_name.split())
+                print(f"✅ Translated name '{name}' to English: '{translated_name}'")
+                return translated_name
+            except Exception as e:
+                print(f"⚠️ Name translation failed: {e}, using original")
+                return name.strip()
+        
+        return name.strip()
+    
     async def _handle_onboarding_phase(self, patient_text: str, patient_data: Dict[str, Any]) -> Dict[str, Any]:
         """Handle onboarding phase - collect name, age, phone"""
         
@@ -548,8 +599,10 @@ class IntelligentConversationEngine:
                     break
             
             if extracted_name:
-                demographics["name"] = extracted_name
-                print(f"✅ Extracted name via pattern: {extracted_name}")
+                # Translate name to English
+                translated_name = await self._translate_name_to_english(extracted_name)
+                demographics["name"] = translated_name
+                print(f"✅ Extracted name via pattern: {extracted_name} → {translated_name}")
             else:
                 # Fallback: word after "naam"
                 words = patient_text.split()
@@ -557,8 +610,10 @@ class IntelligentConversationEngine:
                     if word.lower() in ["naam", "name"] and i + 1 < len(words):
                         potential_name = words[i + 1].strip().rstrip(".,!?")
                         if potential_name and len(potential_name) > 2:
-                            demographics["name"] = potential_name
-                            print(f"✅ Extracted name via fallback: {potential_name}")
+                            # Translate name to English
+                            translated_name = await self._translate_name_to_english(potential_name)
+                            demographics["name"] = translated_name
+                            print(f"✅ Extracted name via fallback: {potential_name} → {translated_name}")
                             break
         
         # Extract age
@@ -571,8 +626,14 @@ class IntelligentConversationEngine:
                     break
             
             if extracted_age:
-                demographics["age"] = extracted_age
-                print(f"✅ Extracted age via pattern: {extracted_age}")
+                # Ensure age is stored as integer
+                try:
+                    age_int = int(extracted_age)
+                    demographics["age"] = age_int
+                    print(f"✅ Extracted age via pattern: {age_int}")
+                except ValueError:
+                    demographics["age"] = extracted_age
+                    print(f"✅ Extracted age via pattern (as string): {extracted_age}")
         
         # Extract phone
         if not demographics.get("phone_number"):
@@ -605,15 +666,15 @@ class IntelligentConversationEngine:
             Extract ONLY these missing fields: {', '.join(missing_fields)}
             
             Extract:
-            - Name (if mentioned) - look for words like "naam", "name", "mera naam", "my name"
-            - Age (if mentioned) - look for numbers with "umar", "age", "saal", "years"
+            - Name (if mentioned) - look for words like "naam", "name", "mera naam", "my name". Extract the name as provided (can be Urdu, Roman Urdu, or English)
+            - Age (if mentioned) - look for numbers with "umar", "age", "saal", "years". Return as a number (e.g., 25 not "25")
             - Phone number (if mentioned) - look for digits in phone format (usually 10-12 digits)
             
             Return JSON: {{"name": "", "age": "", "phone_number": ""}}
             
             Examples:
             - "mera naam sadia hai" → {{"name": "sadia"}}
-            - "meri umar 25 hai" → {{"age": "25"}}
+            - "meri umar 25 hai" → {{"age": 25}}
             - "mera phone 923001234567 hai" → {{"phone_number": "923001234567"}}
             """
             
@@ -631,11 +692,19 @@ class IntelligentConversationEngine:
                     extracted = json.loads(response_text[start_idx:end_idx])
                     
                     if extracted.get("name") and not demographics.get("name"):
-                        demographics["name"] = extracted["name"]
-                        print(f"✅ Extracted name via AI: {extracted['name']}")
+                        # Translate name to English
+                        translated_name = await self._translate_name_to_english(extracted["name"])
+                        demographics["name"] = translated_name
+                        print(f"✅ Extracted name via AI: {extracted['name']} → {translated_name}")
                     if extracted.get("age") and not demographics.get("age"):
-                        demographics["age"] = extracted["age"]
-                        print(f"✅ Extracted age via AI: {extracted['age']}")
+                        # Ensure age is stored as integer
+                        try:
+                            age_int = int(extracted["age"])
+                            demographics["age"] = age_int
+                            print(f"✅ Extracted age via AI: {age_int}")
+                        except ValueError:
+                            demographics["age"] = extracted["age"]
+                            print(f"✅ Extracted age via AI (as string): {extracted['age']}")
                     if extracted.get("phone_number") and not demographics.get("phone_number"):
                         demographics["phone_number"] = extracted["phone_number"]
                         print(f"✅ Extracted phone via AI: {extracted['phone_number']}")
