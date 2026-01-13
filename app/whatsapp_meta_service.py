@@ -27,7 +27,8 @@ class MetaWhatsAppService:
         )
         
         # Rate limiting semaphore to prevent overwhelming WhatsApp API
-        self.api_semaphore = asyncio.Semaphore(20)  # Max 20 concurrent API calls
+        # Increased to 50 to handle more concurrent conversations
+        self.api_semaphore = asyncio.Semaphore(50)  # Max 50 concurrent API calls
         
         # Message deduplication: Track processed message IDs with timestamps
         # Format: {message_id: timestamp}
