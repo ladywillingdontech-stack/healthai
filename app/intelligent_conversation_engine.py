@@ -778,12 +778,12 @@ Now translate: "{name}"
                 if "عمر" in missing_info[0]:
                     response_text = f"وعلیکم السلام! میں آپ کی گائناکالوجی کی مدد کرنے کے لئے ہوں۔ آپ کی عمر کتنی ہے؟"
                 else:
-                response_text = f"وعلیکم السلام! میں آپ کی گائناکالوجی کی مدد کرنے کے لئے ہوں۔ براہ کرم مجھے اپنا {missing_info[0]} بتائیں۔"
+                    response_text = f"وعلیکم السلام! میں آپ کی گائناکالوجی کی مدد کرنے کے لئے ہوں۔ براہ کرم مجھے اپنا {missing_info[0]} بتائیں۔"
             else:
                 if "عمر" in missing_info[0]:
                     response_text = f"آپ کی عمر کتنی ہے؟"
-            else:
-                response_text = f"براہ کرم مجھے اپنا {missing_info[0]} بتائیں۔"
+                else:
+                    response_text = f"براہ کرم مجھے اپنا {missing_info[0]} بتائیں۔"
             
             return {
                 "response_text": response_text,
@@ -987,13 +987,13 @@ Now translate: "{name}"
                         # Ask current question
                         response_text = current_question["text"]
                         patient_data["issue_specific_question_index"] = current_issue_index + 1
-            return {
-                "response_text": response_text,
-                "next_phase": "problem_collection",
-                "patient_data": patient_data,
-                "action": "continue_conversation"
-            }
-        else:
+                        return {
+                            "response_text": response_text,
+                            "next_phase": "problem_collection",
+                            "patient_data": patient_data,
+                            "action": "continue_conversation"
+                        }
+                    else:
                         # Skip this question and move to next
                         current_issue_index += 1
                         patient_data["issue_specific_question_index"] = current_issue_index
@@ -1025,13 +1025,13 @@ Now translate: "{name}"
                         patient_data["current_phase"] = "assessment"
                         assessment_result = await self._handle_assessment_phase("", patient_data)
                         return assessment_result
-            
-            return {
-                "response_text": response_text,
+                    
+                    return {
+                        "response_text": response_text,
                         "next_phase": "questionnaire",
-                "patient_data": patient_data,
-                "action": "continue_conversation"
-            }
+                        "patient_data": patient_data,
+                        "action": "continue_conversation"
+                    }
     
         # If we've completed all issue-specific questions
         if detected_issue and issue_questions:
@@ -1069,7 +1069,7 @@ Now translate: "{name}"
                     }
                 else:
                     # All questions done, move to assessment
-            patient_data["current_phase"] = "assessment"
+                    patient_data["current_phase"] = "assessment"
                     assessment_result = await self._handle_assessment_phase("", patient_data)
                     return assessment_result
         
@@ -1104,13 +1104,13 @@ Now translate: "{name}"
                     response_text = f"شکریہ۔ اب میں آپ سے کچھ ضروری سوالات پوچھوں گی۔\n\n{first_question}"
                 else:
                     response_text = "شکریہ۔ اب میں آپ سے کچھ ضروری سوالات پوچھوں گی۔"
-        
-        return {
+                
+                return {
                     "response_text": response_text,
                     "next_phase": "questionnaire",
-            "patient_data": patient_data,
-            "action": "continue_conversation"
-        }
+                    "patient_data": patient_data,
+                    "action": "continue_conversation"
+                }
             else:
                 # Ask for problem if not collected yet
                 response_text = "براہ کرم مجھے بتائیں کہ آپ کو کیا مسئلہ ہے؟ آپ کی کیا تکلیف ہے؟"
@@ -1946,7 +1946,7 @@ Now translate: "{name}"
             if visit_number > 1:
                 response_text = f"وعلیکم السلام! آپ کا دوبارہ خیرمقدم ہے۔ یہ آپ کا {visit_number}واں دورہ ہے۔ براہ کرم مجھے اپنا نام بتائیں۔"
             else:
-            response_text = "وعلیکم السلام! میں آپ کی گائناکالوجی کی مدد کرنے کے لئے ہوں۔ براہ کرم مجھے اپنا نام بتائیں۔"
+                response_text = "وعلیکم السلام! میں آپ کی گائناکالوجی کی مدد کرنے کے لئے ہوں۔ براہ کرم مجھے اپنا نام بتائیں۔"
         else:
             response_text = "براہ کرم مجھے اپنا نام بتائیں۔"
         
