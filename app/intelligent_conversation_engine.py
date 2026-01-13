@@ -1104,13 +1104,13 @@ Now translate: "{name}"
                     response_text = f"شکریہ۔ اب میں آپ سے کچھ ضروری سوالات پوچھوں گی۔\n\n{first_question}"
                 else:
                     response_text = "شکریہ۔ اب میں آپ سے کچھ ضروری سوالات پوچھوں گی۔"
-        
-        return {
+                
+                return {
                     "response_text": response_text,
                     "next_phase": "questionnaire",
-            "patient_data": patient_data,
-            "action": "continue_conversation"
-        }
+                    "patient_data": patient_data,
+                    "action": "continue_conversation"
+                }
             else:
                 # Ask for problem if not collected yet
                 response_text = "براہ کرم مجھے بتائیں کہ آپ کو کیا مسئلہ ہے؟ آپ کی کیا تکلیف ہے؟"
@@ -1946,7 +1946,7 @@ Now translate: "{name}"
             if visit_number > 1:
                 response_text = f"وعلیکم السلام! آپ کا دوبارہ خیرمقدم ہے۔ یہ آپ کا {visit_number}واں دورہ ہے۔ براہ کرم مجھے اپنا نام بتائیں۔"
             else:
-            response_text = "وعلیکم السلام! میں آپ کی گائناکالوجی کی مدد کرنے کے لئے ہوں۔ براہ کرم مجھے اپنا نام بتائیں۔"
+                response_text = "وعلیکم السلام! میں آپ کی گائناکالوجی کی مدد کرنے کے لئے ہوں۔ براہ کرم مجھے اپنا نام بتائیں۔"
         else:
             response_text = "براہ کرم مجھے اپنا نام بتائیں۔"
         
