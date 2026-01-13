@@ -1,6 +1,7 @@
 import json
 import re
 import openai
+import asyncio
 from datetime import datetime
 from typing import Dict, Any, List, Optional
 from app.firestore_service import FirestoreService
@@ -12,8 +13,43 @@ class IntelligentConversationEngine:
         # Configure OpenAI
         openai.api_key = settings.openai_api_key
         
+        # Rate limiting semaphore for OpenAI API calls to prevent overwhelming the API
+        # Increased to 30 to handle more concurrent conversations
+        self.openai_semaphore = asyncio.Semaphore(30)
+        
         # Define all 60 structured questions
         self.questions = self._initialize_questions()
+    
+    async def _call_openai_async(self, model: str, messages: List[Dict], temperature: float = 0.1, max_tokens: Optional[int] = None, timeout: float = 30.0):
+        """Make OpenAI API call asynchronously with timeout and rate limiting"""
+        async with self.openai_semaphore:
+            try:
+                # Run OpenAI call in executor to avoid blocking the event loop
+                loop = asyncio.get_event_loop()
+                
+                # Create a callable for the OpenAI API
+                def _openai_call():
+                    kwargs = {
+                        "model": model,
+                        "messages": messages,
+                        "temperature": temperature
+                    }
+                    if max_tokens:
+                        kwargs["max_tokens"] = max_tokens
+                    return openai.chat.completions.create(**kwargs)
+                
+                # Run with timeout
+                response = await asyncio.wait_for(
+                    loop.run_in_executor(None, _openai_call),
+                    timeout=timeout
+                )
+                return response
+            except asyncio.TimeoutError:
+                print(f"⚠️ OpenAI API call timed out after {timeout}s")
+                raise
+            except Exception as e:
+                print(f"⚠️ OpenAI API call error: {e}")
+                raise
     
     async def process_patient_response(self, patient_text: str, patient_id: str) -> Dict[str, Any]:
         """Main method to process patient responses intelligently"""
@@ -404,10 +440,11 @@ class IntelligentConversationEngine:
         """
         
         try:
-            response = openai.chat.completions.create(
+            response = await self._call_openai_async(
                 model="gpt-4",
                 messages=[{"role": "user", "content": extraction_prompt}],
-                temperature=0.1
+                temperature=0.1,
+                timeout=20.0
             )
             
             response_text = response.choices[0].message.content.strip()
@@ -537,11 +574,12 @@ Examples:
 
 Now translate: "{name}"
 """
-                response = openai.chat.completions.create(
+                response = await self._call_openai_async(
                     model="gpt-4",
                     messages=[{"role": "user", "content": prompt}],
                     temperature=0.1,
-                    max_tokens=50
+                    max_tokens=50,
+                    timeout=15.0
                 )
                 
                 translated_name = response.choices[0].message.content.strip()
@@ -834,10 +872,11 @@ Now translate: "{name}"
         """
         
         try:
-            response = openai.chat.completions.create(
+            response = await self._call_openai_async(
                 model="gpt-4",
                 messages=[{"role": "user", "content": extraction_prompt}],
-                temperature=0.1
+                temperature=0.1,
+                timeout=20.0
             )
             
             response_text = response.choices[0].message.content.strip()
@@ -986,10 +1025,11 @@ Now translate: "{name}"
         """
         
         try:
-            response = openai.chat.completions.create(
+            response = await self._call_openai_async(
                 model="gpt-4",
                 messages=[{"role": "user", "content": extraction_prompt}],
-                temperature=0.1
+                temperature=0.1,
+                timeout=20.0
             )
             
             response_text = response.choices[0].message.content.strip()
@@ -1043,10 +1083,11 @@ Now translate: "{name}"
         """
         
         try:
-            response = openai.chat.completions.create(
+            response = await self._call_openai_async(
                 model="gpt-4",
                 messages=[{"role": "user", "content": extraction_prompt}],
-                temperature=0.1
+                temperature=0.1,
+                timeout=20.0
             )
             
             response_text = response.choices[0].message.content.strip()
@@ -1446,17 +1487,17 @@ Now translate: "{name}"
         patient_data["assessment_complete"] = True
         patient_data["current_phase"] = "completed"
         
-        # Store assessment details in patient_data
+        # Store assessment details in patient_data (for EMR, not sent to patient)
         patient_data["assessment_summary"] = assessment.get('assessment_summary', '')
         patient_data["clinical_impression"] = assessment.get('clinical_impression', '')
         
-        # Generate response based on alert level
+        # Generate response based on alert level (without assessment summary or alert level mention)
         if alert_level == "red":
-            response_text = f"{assessment.get('assessment_summary', '')}\n\nیہ ایک RED ALERT ہے۔ آپ کو فوراً اپنے ڈاکٹر کے پاس جانا چاہیے۔"
+            response_text = "فوراً ڈاکٹر کے پاس جائیں۔"
         elif alert_level == "yellow":
-            response_text = f"{assessment.get('assessment_summary', '')}\n\nیہ ایک YELLOW ALERT ہے۔ آپ کو ڈاکٹر کو دکھا لینا چاہیے جب آپ کے پاس وقت ہو۔ یہ بہت urgent نہیں ہے۔"
+            response_text = "1 ہفتے کے اندر ڈاکٹر کے پاس ضرور جائیں۔"
         else:
-            response_text = f"{assessment.get('assessment_summary', '')}\n\nیہ ایک GREEN ALERT ہے۔ آپ کا طبی رپورٹ تیار ہو گیا ہے۔ اللہ حافظ!"
+            response_text = "2 ہفتوں کے اندر ڈاکٹر کو چیک کروا لیں۔"
         
         return {
             "response_text": response_text,
@@ -1651,6 +1692,9 @@ Now translate: "{name}"
             if not isinstance(medical_history, dict):
                 medical_history = {}
             
+            # Get visit number for this EMR
+            visit_number = emr_patient_data.get('visit_number', 1)
+            
             # Ensure alert level is set - if not present, generate one based on symptoms
             alert_level = emr_patient_data.get('alert_level')
             if not alert_level or alert_level not in ['red', 'yellow', 'green']:
@@ -1682,6 +1726,8 @@ Now translate: "{name}"
             
             # ELECTRONIC MEDICAL RECORD (EMR)
             ## Gynecological Consultation Report
+            
+            **Visit Number:** {visit_number}
             
             ### 1. PATIENT DEMOGRAPHICS
             Include: Name, Age, Phone Number, Marriage Information, Children Information, Menstrual History
@@ -1735,22 +1781,24 @@ Now translate: "{name}"
             REMEMBER: Every single word, sentence, and section must be in English. Translate any non-English content to proper English medical terminology.
             
             ---
+            **Visit Number:** {visit_number}
             **Report Generated:** {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
             **Generated By:** AI Gynecological Assistant
             
             IMPORTANT: Use ALL the structured data collected. Don't leave out any important information. Format this as a professional medical report with proper markdown formatting, clear headings, and structured sections. Use bold text for field labels and maintain professional medical terminology throughout.
             """
             
-            response = openai.chat.completions.create(
+            response = await self._call_openai_async(
                 model="gpt-4",
                 messages=[{"role": "user", "content": emr_prompt}],
-                temperature=0.1
+                temperature=0.1,
+                timeout=60.0  # EMR generation can take longer
             )
-            
-            emr_content = response.choices[0].message.content.strip()
             
             # Get visit number for this EMR
             visit_number = emr_patient_data.get('visit_number', 1)
+            
+            emr_content = response.choices[0].message.content.strip()
             
             # Save EMR to Firestore
             emr_data = {
