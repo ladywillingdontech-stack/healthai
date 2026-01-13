@@ -778,12 +778,12 @@ Now translate: "{name}"
                 if "عمر" in missing_info[0]:
                     response_text = f"وعلیکم السلام! میں آپ کی گائناکالوجی کی مدد کرنے کے لئے ہوں۔ آپ کی عمر کتنی ہے؟"
                 else:
-                response_text = f"وعلیکم السلام! میں آپ کی گائناکالوجی کی مدد کرنے کے لئے ہوں۔ براہ کرم مجھے اپنا {missing_info[0]} بتائیں۔"
+                    response_text = f"وعلیکم السلام! میں آپ کی گائناکالوجی کی مدد کرنے کے لئے ہوں۔ براہ کرم مجھے اپنا {missing_info[0]} بتائیں۔"
             else:
                 if "عمر" in missing_info[0]:
                     response_text = f"آپ کی عمر کتنی ہے؟"
-            else:
-                response_text = f"براہ کرم مجھے اپنا {missing_info[0]} بتائیں۔"
+                else:
+                    response_text = f"براہ کرم مجھے اپنا {missing_info[0]} بتائیں۔"
             
             return {
                 "response_text": response_text,
