@@ -36,7 +36,7 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=[
         "http://localhost:3000",  # Local development
-        "https://healthai-portal-production.up.railway.app",  # Update this with your actual frontend URL
+        "https://your-frontend-domain.railway.app",  # Update this with your actual frontend URL
         "https://your-frontend-domain.netlify.app",  # If using Netlify
         "https://your-frontend-domain.vercel.app",   # If using Vercel
     ],
@@ -408,6 +408,7 @@ async def get_all_emrs():
     """Get all EMRs from all patients"""
     try:
         all_emrs = []
+        seen_emr_ids = set()  # Track EMR IDs to prevent duplicates
         
         # First try to get EMRs directly from the emrs collection
         try:
@@ -415,7 +416,14 @@ async def get_all_emrs():
             direct_emrs = []
             for doc in docs:
                 emr_data = doc.to_dict()
-                emr_data['emr_id'] = doc.id
+                emr_id = doc.id
+                emr_data['emr_id'] = emr_id
+                
+                # Skip if we've already seen this EMR
+                if emr_id in seen_emr_ids:
+                    continue
+                seen_emr_ids.add(emr_id)
+                
                 direct_emrs.append(emr_data)
             
             if direct_emrs:
@@ -447,32 +455,56 @@ async def get_all_emrs():
         # If no EMRs found directly, try the old method
         if not all_emrs:
             print("📋 Trying to get EMRs via patients...")
-        # Get all patients first
-        patients_response = await firestore_service.get_all_patients()
+            # Get all patients first
+            patients_response = await firestore_service.get_all_patients()
+            
+            # Get EMRs for each patient
+            for patient in patients_response:
+                patient_id = patient.get('patient_id', '')
+                if patient_id:
+                    emrs = await firestore_service.get_patient_emrs(patient_id)
+                    if emrs:
+                        # Add patient info to each EMR and check for duplicates
+                        for emr in emrs:
+                            # Use emr_id if available, otherwise create a unique key
+                            emr_id = emr.get('emr_id') or emr.get('id') or f"{patient_id}_{emr.get('created_at', '')}"
+                            
+                            # Skip if we've already seen this EMR
+                            if emr_id in seen_emr_ids:
+                                continue
+                            seen_emr_ids.add(emr_id)
+                            
+                            emr['patient_info'] = {
+                                'patient_id': patient_id,
+                                'name': patient.get('demographics', {}).get('name', 'Unknown'),
+                                'age': patient.get('demographics', {}).get('age', 'Unknown'),
+                                'phone': patient.get('demographics', {}).get('phone_number', 'Unknown')
+                            }
+                            all_emrs.append(emr)
         
-        # Get EMRs for each patient
-        for patient in patients_response:
-            patient_id = patient.get('patient_id', '')
-            if patient_id:
-                emrs = await firestore_service.get_patient_emrs(patient_id)
-                if emrs:
-                    # Add patient info to each EMR
-                    for emr in emrs:
-                        emr['patient_info'] = {
-                            'patient_id': patient_id,
-                            'name': patient.get('demographics', {}).get('name', 'Unknown'),
-                            'age': patient.get('demographics', {}).get('age', 'Unknown'),
-                            'phone': patient.get('demographics', {}).get('phone_number', 'Unknown')
-                        }
-                    all_emrs.extend(emrs)
+        # Final deduplication pass using emr_id or a combination of patient_id and created_at
+        unique_emrs = []
+        seen_keys = set()
+        for emr in all_emrs:
+            # Create a unique key for deduplication
+            emr_id = emr.get('emr_id') or emr.get('id')
+            if not emr_id:
+                # Fallback: use patient_id + created_at as unique key
+                emr_id = f"{emr.get('patient_id', '')}_{emr.get('created_at', '')}"
+            
+            if emr_id not in seen_keys:
+                seen_keys.add(emr_id)
+                unique_emrs.append(emr)
         
         # Sort by creation date (newest first)
-        all_emrs.sort(key=lambda x: x.get('created_at', ''), reverse=True)
+        unique_emrs.sort(key=lambda x: x.get('created_at', ''), reverse=True)
+        
+        print(f"✅ Returning {len(unique_emrs)} unique EMRs (removed {len(all_emrs) - len(unique_emrs)} duplicates)")
         
         return {
             "success": True,
-            "emrs": all_emrs,
-            "total_count": len(all_emrs)
+            "emrs": unique_emrs,
+            "total_count": len(unique_emrs)
         }
         
     except Exception as e:
