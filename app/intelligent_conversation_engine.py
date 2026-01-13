@@ -1060,18 +1060,18 @@ Now translate: "{name}"
                 if patient_data["current_question_index"] < len(self.questions):
                     next_question = self.questions[patient_data["current_question_index"]]["text"]
                     response_text = next_question
+                    
+                    return {
+                        "response_text": response_text,
+                        "next_phase": "questionnaire",
+                        "patient_data": patient_data,
+                        "action": "continue_conversation"
+                    }
                 else:
                     # All questions done, move to assessment
-            patient_data["current_phase"] = "assessment"
+                    patient_data["current_phase"] = "assessment"
                     assessment_result = await self._handle_assessment_phase("", patient_data)
                     return assessment_result
-                
-                return {
-                    "response_text": response_text,
-                    "next_phase": "questionnaire",
-                    "patient_data": patient_data,
-                    "action": "continue_conversation"
-                }
         
         # If problem not collected yet
         if not patient_data.get("problem_description"):
