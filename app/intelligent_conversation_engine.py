@@ -617,25 +617,13 @@ Now translate: "{name}"
         except (ValueError, TypeError):
             current_question_index = 0
         
-        # Check if we've completed questions 4-9 (indices 0-5)
-        # Question 9 is at index 5, so after answering it, current_question_index would be 6
-        if current_question_index >= 6:
-            # All demographics questions (4-9) completed, move to problem collection
-            patient_data["current_phase"] = "problem_collection"
-            response_text = "شکریہ! اب مجھے بتائیں کہ آپ کو کیا مسئلہ ہے؟ آپ کی کیا تکلیف ہے؟"
-            
-            return {
-                "response_text": response_text,
-                "next_phase": "problem_collection",
-                "patient_data": patient_data,
-                "action": "continue_conversation"
-            }
-        
         # Ensure we have a valid question index (skip conditional ones if needed)
+        # This will skip Q6 if first pregnancy, Q8 if LMP remembered, etc.
         current_question_index = self._get_next_valid_question_index(current_question_index, patient_data)
         patient_data["current_question_index"] = current_question_index
         
-        # Check if we've completed all demographics questions
+        # Check if we've completed all demographics questions (Q4-9, indices 0-5)
+        # If the next valid question is >= 6, we've passed Q9 and are done with demographics
         if current_question_index >= 6:
             # All demographics questions (4-9) completed, move to problem collection
             patient_data["current_phase"] = "problem_collection"
@@ -648,16 +636,29 @@ Now translate: "{name}"
                 "action": "continue_conversation"
             }
         
-        # Ask the current question (Q4-9)
-        current_question = self.questions[current_question_index]
-        question_text = current_question["text"]
-        
-        return {
-            "response_text": question_text,
-            "next_phase": "demographics",
-            "patient_data": patient_data,
-            "action": "continue_conversation"
-        }
+        # Ask the current question (Q4-9, indices 0-5)
+        # Ensure we're still within Q4-9 range
+        if current_question_index < 6:
+            current_question = self.questions[current_question_index]
+            question_text = current_question["text"]
+            
+            return {
+                "response_text": question_text,
+                "next_phase": "demographics",
+                "patient_data": patient_data,
+                "action": "continue_conversation"
+            }
+        else:
+            # Should not reach here, but handle gracefully
+            patient_data["current_phase"] = "problem_collection"
+            response_text = "شکریہ! اب مجھے بتائیں کہ آپ کو کیا مسئلہ ہے؟ آپ کی کیا تکلیف ہے؟"
+            
+            return {
+                "response_text": response_text,
+                "next_phase": "problem_collection",
+                "patient_data": patient_data,
+                "action": "continue_conversation"
+            }
     
     async def _handle_onboarding_phase(self, patient_text: str, patient_data: Dict[str, Any]) -> Dict[str, Any]:
         """Handle onboarding phase - collect name, age, phone"""
