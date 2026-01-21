@@ -88,8 +88,8 @@ class IntelligentConversationEngine:
             except (ValueError, TypeError):
                 current_question_index = 0
             
-            # Extract information if in questionnaire phase and patient has responded
-            if current_phase == "questionnaire" and current_question_index < len(self.questions) and patient_text.strip():
+            # Extract information if in demographics or questionnaire phase and patient has responded
+            if current_phase in ["demographics", "questionnaire"] and current_question_index < len(self.questions) and patient_text.strip():
                 current_question = self.questions[current_question_index]
                 await self._extract_information_intelligently(patient_text, patient_data, current_question)
                 
@@ -536,6 +536,8 @@ class IntelligentConversationEngine:
         
         if current_phase == "onboarding":
             return await self._handle_onboarding_phase(patient_text, patient_data)
+        elif current_phase == "demographics":
+            return await self._handle_demographics_phase(patient_text, patient_data)
         elif current_phase == "problem_collection":
             return await self._handle_problem_collection_phase(patient_text, patient_data)
         elif current_phase == "questionnaire":
@@ -598,6 +600,64 @@ Now translate: "{name}"
                 return name.strip()
         
         return name.strip()
+    
+    async def _handle_demographics_phase(self, patient_text: str, patient_data: Dict[str, Any]) -> Dict[str, Any]:
+        """Handle demographics phase - ask questions 4-9"""
+        
+        current_question_index = patient_data.get("current_question_index", 0)
+        
+        # Ensure current_question_index is an integer
+        try:
+            if isinstance(current_question_index, str):
+                current_question_index = int(current_question_index) if current_question_index.isdigit() else 0
+            elif current_question_index is None:
+                current_question_index = 0
+            else:
+                current_question_index = int(current_question_index)
+        except (ValueError, TypeError):
+            current_question_index = 0
+        
+        # Check if we've completed questions 4-9 (indices 0-5)
+        # Question 9 is at index 5, so after answering it, current_question_index would be 6
+        if current_question_index >= 6:
+            # All demographics questions (4-9) completed, move to problem collection
+            patient_data["current_phase"] = "problem_collection"
+            response_text = "شکریہ! اب مجھے بتائیں کہ آپ کو کیا مسئلہ ہے؟ آپ کی کیا تکلیف ہے؟"
+            
+            return {
+                "response_text": response_text,
+                "next_phase": "problem_collection",
+                "patient_data": patient_data,
+                "action": "continue_conversation"
+            }
+        
+        # Ensure we have a valid question index (skip conditional ones if needed)
+        current_question_index = self._get_next_valid_question_index(current_question_index, patient_data)
+        patient_data["current_question_index"] = current_question_index
+        
+        # Check if we've completed all demographics questions
+        if current_question_index >= 6:
+            # All demographics questions (4-9) completed, move to problem collection
+            patient_data["current_phase"] = "problem_collection"
+            response_text = "شکریہ! اب مجھے بتائیں کہ آپ کو کیا مسئلہ ہے؟ آپ کی کیا تکلیف ہے؟"
+            
+            return {
+                "response_text": response_text,
+                "next_phase": "problem_collection",
+                "patient_data": patient_data,
+                "action": "continue_conversation"
+            }
+        
+        # Ask the current question (Q4-9)
+        current_question = self.questions[current_question_index]
+        question_text = current_question["text"]
+        
+        return {
+            "response_text": question_text,
+            "next_phase": "demographics",
+            "patient_data": patient_data,
+            "action": "continue_conversation"
+        }
     
     async def _handle_onboarding_phase(self, patient_text: str, patient_data: Dict[str, Any]) -> Dict[str, Any]:
         """Handle onboarding phase - collect name, age, phone"""
@@ -792,15 +852,22 @@ Now translate: "{name}"
                 "action": "continue_conversation"
             }
         else:
-            # Onboarding complete, move to problem collection
+            # Onboarding complete (name, age, phone), move to demographics phase (Q4-9)
             print(f"✅ Onboarding complete! Name: {demographics.get('name')}, Age: {demographics.get('age')}, Phone: {demographics.get('phone_number')}")
-            patient_data["current_phase"] = "problem_collection"
-            name = demographics.get("name", "صاحبہ")
-            response_text = f"{name} صاحبہ، آپ کا آن بورڈنگ مکمل ہو گیا ہے۔ اب مجھے بتائیں کہ آپ کو کیا مسئلہ ہے؟"
+            patient_data["current_phase"] = "demographics"
+            patient_data["current_question_index"] = 0  # Start with question 4 (index 0)
+            patient_data["current_question_index"] = self._get_next_valid_question_index(0, patient_data)
+            
+            if patient_data["current_question_index"] < len(self.questions):
+                first_question = self.questions[patient_data["current_question_index"]]["text"]
+                name = demographics.get("name", "صاحبہ")
+                response_text = f"{name} صاحبہ، آپ کا آن بورڈنگ مکمل ہو گیا ہے۔ اب میں آپ سے کچھ ضروری سوالات پوچھوں گی۔\n\n{first_question}"
+            else:
+                response_text = f"{demographics.get('name', 'صاحبہ')} صاحبہ، آپ کا آن بورڈنگ مکمل ہو گیا ہے۔"
             
             return {
                 "response_text": response_text,
-                "next_phase": "problem_collection",
+                "next_phase": "demographics",
                 "patient_data": patient_data,
                 "action": "continue_conversation"
             }
@@ -1011,7 +1078,7 @@ Now translate: "{name}"
                                 patient_data["issue_specific_questions"][last_question["id"]] = patient_text
                     
                     patient_data["issue_specific_questions_complete"] = True
-                    # Move back to questionnaire and continue from question 10 (index 6)
+                    # Move to questionnaire and continue from question 10 (index 6)
                     patient_data["current_phase"] = "questionnaire"
                     patient_data["current_question_index"] = 6  # Continue from question 10 (after questions 4-9)
                     patient_data["current_question_index"] = self._get_next_valid_question_index(6, patient_data)
@@ -1019,7 +1086,7 @@ Now translate: "{name}"
                     # Get next regular question (question 10 onwards)
                     if patient_data["current_question_index"] < len(self.questions):
                         next_question = self.questions[patient_data["current_question_index"]]["text"]
-                        response_text = next_question
+                        response_text = f"شکریہ۔ اب میں آپ سے کچھ مزید سوالات پوچھوں گی۔\n\n{next_question}"
                     else:
                         # All questions done, move to assessment
                         patient_data["current_phase"] = "assessment"
@@ -1051,7 +1118,7 @@ Now translate: "{name}"
                             patient_data["issue_specific_questions"][last_question["id"]] = patient_text
                 
                 patient_data["issue_specific_questions_complete"] = True
-                # Move back to questionnaire and continue from question 10 (index 6)
+                # Move to questionnaire and continue from question 10 (index 6)
                 patient_data["current_phase"] = "questionnaire"
                 patient_data["current_question_index"] = 6  # Continue from question 10 (after questions 4-9)
                 patient_data["current_question_index"] = self._get_next_valid_question_index(6, patient_data)
@@ -1059,7 +1126,7 @@ Now translate: "{name}"
                 # Get next regular question (question 10 onwards)
                 if patient_data["current_question_index"] < len(self.questions):
                     next_question = self.questions[patient_data["current_question_index"]]["text"]
-                    response_text = next_question
+                    response_text = f"شکریہ۔ اب میں آپ سے کچھ مزید سوالات پوچھوں گی۔\n\n{next_question}"
                     
                     return {
                         "response_text": response_text,
@@ -1081,7 +1148,7 @@ Now translate: "{name}"
                 patient_data["problem_description"] = problem_text
                 print(f"✅ Saved problem description: {patient_data['problem_description']}")
                 
-                # Detect issue type (but don't ask issue-specific questions yet)
+                # Detect issue type
                 detected_issue = self._detect_issue_type(problem_text)
                 patient_data["detected_issue"] = detected_issue
                 print(f"✅ Detected issue type: {detected_issue}")
@@ -1094,23 +1161,80 @@ Now translate: "{name}"
                 if "issue_specific_questions_complete" not in patient_data:
                     patient_data["issue_specific_questions_complete"] = False
                 
-                # Move to questionnaire and start with question 4 (index 0)
-                patient_data["current_phase"] = "questionnaire"
-                patient_data["current_question_index"] = 0
-                patient_data["current_question_index"] = self._get_next_valid_question_index(0, patient_data)
+                # Check if we need to ask issue-specific questions
+                issue_questions = self._get_issue_specific_questions(detected_issue, patient_data)
                 
-                if patient_data["current_question_index"] < len(self.questions):
-                    first_question = self.questions[patient_data["current_question_index"]]["text"]
-                    response_text = f"شکریہ۔ اب میں آپ سے کچھ ضروری سوالات پوچھوں گی۔\n\n{first_question}"
+                if issue_questions and detected_issue != "checkup":
+                    # Ask issue-specific questions first
+                    # Stay in problem_collection phase to ask issue-specific questions
+                    current_issue_index = 0
+                    patient_data["issue_specific_question_index"] = current_issue_index
+                    
+                    # Find first question to ask (skip conditional ones if condition not met)
+                    while current_issue_index < len(issue_questions):
+                        current_question = issue_questions[current_issue_index]
+                        condition = current_question.get("condition")
+                        should_ask = True
+                        
+                        if condition:
+                            if condition == "if_treatment_yes":
+                                # This will be checked when we have previous answers
+                                should_ask = True  # Will be handled dynamically
+                            elif condition == "if_heavy":
+                                # This will be checked when we have previous answers
+                                should_ask = True  # Will be handled dynamically
+                            elif condition == "if_naalon":
+                                # This will be checked when we have previous answers
+                                should_ask = True  # Will be handled dynamically
+                        
+                        if should_ask:
+                            response_text = current_question["text"]
+                            patient_data["issue_specific_question_index"] = current_issue_index + 1
+                            return {
+                                "response_text": response_text,
+                                "next_phase": "problem_collection",
+                                "patient_data": patient_data,
+                                "action": "continue_conversation"
+                            }
+                        else:
+                            current_issue_index += 1
+                    
+                    # If no questions to ask, move to questionnaire
+                    patient_data["issue_specific_questions_complete"] = True
+                    patient_data["current_phase"] = "questionnaire"
+                    patient_data["current_question_index"] = 6  # Start from Q10 (index 6)
+                    patient_data["current_question_index"] = self._get_next_valid_question_index(6, patient_data)
+                    
+                    if patient_data["current_question_index"] < len(self.questions):
+                        first_question = self.questions[patient_data["current_question_index"]]["text"]
+                        response_text = first_question
+                    else:
+                        response_text = "شکریہ۔ تمام سوالات مکمل ہو گئے ہیں۔"
+                    
+                    return {
+                        "response_text": response_text,
+                        "next_phase": "questionnaire",
+                        "patient_data": patient_data,
+                        "action": "continue_conversation"
+                    }
                 else:
-                    response_text = "شکریہ۔ اب میں آپ سے کچھ ضروری سوالات پوچھوں گی۔"
-                
-                return {
-                    "response_text": response_text,
-                    "next_phase": "questionnaire",
-                    "patient_data": patient_data,
-                    "action": "continue_conversation"
-                }
+                    # No issue-specific questions, move directly to questionnaire (Q10 onwards)
+                    patient_data["current_phase"] = "questionnaire"
+                    patient_data["current_question_index"] = 6  # Start from Q10 (index 6)
+                    patient_data["current_question_index"] = self._get_next_valid_question_index(6, patient_data)
+                    
+                    if patient_data["current_question_index"] < len(self.questions):
+                        first_question = self.questions[patient_data["current_question_index"]]["text"]
+                        response_text = f"شکریہ۔ اب میں آپ سے کچھ مزید سوالات پوچھوں گی۔\n\n{first_question}"
+                    else:
+                        response_text = "شکریہ۔ تمام سوالات مکمل ہو گئے ہیں۔"
+                    
+                    return {
+                        "response_text": response_text,
+                        "next_phase": "questionnaire",
+                        "patient_data": patient_data,
+                        "action": "continue_conversation"
+                    }
             else:
                 # Ask for problem if not collected yet
                 response_text = "براہ کرم مجھے بتائیں کہ آپ کو کیا مسئلہ ہے؟ آپ کی کیا تکلیف ہے؟"
@@ -1704,27 +1828,8 @@ Now translate: "{name}"
         # Note: Extraction and index increment already happened in process_patient_response (unless we handled follow-up above)
         current_question_index = patient_data.get("current_question_index", 0)
         
-        # Check if we've completed questions 4-9 (indices 0-5) and need to ask issue-specific questions
-        # Question 9 is at index 5, so after answering it, current_question_index would be 6
-        if current_question_index == 6:
-            # We've just completed question 9, check if we need to ask issue-specific questions
-            detected_issue = patient_data.get("detected_issue", "")
-            issue_questions_complete = patient_data.get("issue_specific_questions_complete", False)
-            
-            if detected_issue and not issue_questions_complete and detected_issue != "checkup":
-                # Get issue-specific questions
-                issue_questions = self._get_issue_specific_questions(detected_issue, patient_data)
-                
-                if issue_questions:
-                    # Initialize issue-specific questions tracking if not already done
-                    if "issue_specific_questions" not in patient_data:
-                        patient_data["issue_specific_questions"] = {}
-                    if "issue_specific_question_index" not in patient_data:
-                        patient_data["issue_specific_question_index"] = 0
-                    
-                    # Move to problem_collection phase temporarily to ask issue-specific questions
-                    patient_data["current_phase"] = "problem_collection"
-                    return await self._handle_problem_collection_phase("", patient_data)
+        # Note: Issue-specific questions are now handled in problem_collection phase
+        # after problem is collected, so we don't need to check here
         
         # Ensure we have a valid question index (skip obstetric history if needed)
         current_question_index = self._get_next_valid_question_index(current_question_index, patient_data)
