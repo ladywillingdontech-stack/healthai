@@ -20,36 +20,68 @@ class IntelligentConversationEngine:
         # Define all 60 structured questions
         self.questions = self._initialize_questions()
     
-    async def _call_openai_async(self, model: str, messages: List[Dict], temperature: float = 0.1, max_tokens: Optional[int] = None, timeout: float = 30.0):
-        """Make OpenAI API call asynchronously with timeout and rate limiting"""
+    async def _call_openai_async(self, model: str, messages: List[Dict], temperature: float = 0.1, max_tokens: Optional[int] = None, timeout: float = 30.0, max_retries: int = 3):
+        """Make OpenAI API call asynchronously with timeout, rate limiting, and retry logic"""
         async with self.openai_semaphore:
-            try:
-                # Run OpenAI call in executor to avoid blocking the event loop
-                loop = asyncio.get_event_loop()
-                
-                # Create a callable for the OpenAI API
-                def _openai_call():
-                    kwargs = {
-                        "model": model,
-                        "messages": messages,
-                        "temperature": temperature
-                    }
-                    if max_tokens:
-                        kwargs["max_tokens"] = max_tokens
-                    return openai.chat.completions.create(**kwargs)
-                
-                # Run with timeout
-                response = await asyncio.wait_for(
-                    loop.run_in_executor(None, _openai_call),
-                    timeout=timeout
-                )
-                return response
-            except asyncio.TimeoutError:
-                print(f"⚠️ OpenAI API call timed out after {timeout}s")
-                raise
-            except Exception as e:
-                print(f"⚠️ OpenAI API call error: {e}")
-                raise
+            last_exception = None
+            
+            for attempt in range(max_retries):
+                try:
+                    # Run OpenAI call in executor to avoid blocking the event loop
+                    loop = asyncio.get_event_loop()
+                    
+                    # Create a callable for the OpenAI API
+                    def _openai_call():
+                        kwargs = {
+                            "model": model,
+                            "messages": messages,
+                            "temperature": temperature
+                        }
+                        if max_tokens:
+                            kwargs["max_tokens"] = max_tokens
+                        return openai.chat.completions.create(**kwargs)
+                    
+                    # Run with timeout
+                    response = await asyncio.wait_for(
+                        loop.run_in_executor(None, _openai_call),
+                        timeout=timeout
+                    )
+                    return response
+                    
+                except asyncio.TimeoutError:
+                    last_exception = Exception(f"OpenAI API call timed out after {timeout}s (attempt {attempt + 1}/{max_retries})")
+                    print(f"⚠️ {last_exception}")
+                    if attempt < max_retries - 1:
+                        # Exponential backoff: wait 1s, 2s, 4s
+                        wait_time = 2 ** attempt
+                        print(f"⏳ Retrying in {wait_time}s...")
+                        await asyncio.sleep(wait_time)
+                    else:
+                        raise last_exception
+                        
+                except Exception as e:
+                    last_exception = e
+                    error_msg = str(e)
+                    print(f"⚠️ OpenAI API call error (attempt {attempt + 1}/{max_retries}): {error_msg}")
+                    
+                    # Don't retry on certain errors (authentication, invalid request, etc.)
+                    if any(keyword in error_msg.lower() for keyword in ["authentication", "invalid", "unauthorized", "forbidden", "not found"]):
+                        print(f"❌ Non-retryable error, stopping")
+                        raise
+                    
+                    if attempt < max_retries - 1:
+                        # Exponential backoff: wait 1s, 2s, 4s
+                        wait_time = 2 ** attempt
+                        print(f"⏳ Retrying in {wait_time}s...")
+                        await asyncio.sleep(wait_time)
+                    else:
+                        print(f"❌ All retry attempts failed")
+                        raise
+            
+            # Should not reach here, but just in case
+            if last_exception:
+                raise last_exception
+            raise Exception("OpenAI API call failed for unknown reason")
     
     async def process_patient_response(self, patient_text: str, patient_id: str) -> Dict[str, Any]:
         """Main method to process patient responses intelligently"""
