@@ -34,6 +34,9 @@ class MetaWhatsAppService:
         # Format: {message_id: timestamp}
         self.processed_messages: Dict[str, float] = {}
         
+        # Start background task to clean up old messages
+        self._cleanup_task = None
+        
         # Per-patient locks to prevent concurrent processing
         # Format: {patient_id: asyncio.Lock}
         self.patient_locks: Dict[str, asyncio.Lock] = {}
@@ -48,6 +51,58 @@ class MetaWhatsAppService:
         
         # Cleanup old processed messages every 5 minutes (keep for 1 hour)
         self.message_ttl = 3600  # 1 hour in seconds
+        
+        # Start background cleanup task
+        self._start_cleanup_task()
+    
+    def _start_cleanup_task(self):
+        """Start background task to clean up old processed messages"""
+        async def cleanup_loop():
+            while True:
+                try:
+                    await asyncio.sleep(300)  # Run every 5 minutes
+                    self._cleanup_old_messages()
+                except Exception as e:
+                    print(f"⚠️ Error in cleanup task: {e}")
+        
+        # Create task but don't await it (runs in background)
+        try:
+            loop = asyncio.get_event_loop()
+            if loop.is_running():
+                asyncio.create_task(cleanup_loop())
+            else:
+                loop.run_until_complete(asyncio.create_task(cleanup_loop()))
+        except Exception as e:
+            print(f"⚠️ Could not start cleanup task: {e}")
+    
+    def _cleanup_old_messages(self):
+        """Clean up old processed messages to prevent memory leaks"""
+        try:
+            current_time = time.time()
+            expired_messages = [
+                msg_id for msg_id, timestamp in self.processed_messages.items()
+                if current_time - timestamp > self.message_ttl
+            ]
+            
+            for msg_id in expired_messages:
+                del self.processed_messages[msg_id]
+            
+            if expired_messages:
+                print(f"🧹 Cleaned up {len(expired_messages)} old processed messages")
+            
+            # Also cleanup old patient locks (if patient hasn't messaged in 1 hour)
+            current_time = time.time()
+            expired_locks = []
+            with self.locks_lock:
+                # Note: We can't easily track last activity per patient, so we'll keep locks
+                # but limit the total number of locks
+                if len(self.patient_locks) > 1000:  # If too many locks, clean up oldest
+                    # Keep only the most recent 500 locks (simple approach)
+                    # In production, you'd want a more sophisticated LRU cache
+                    pass
+            
+        except Exception as e:
+            print(f"⚠️ Error cleaning up messages: {e}")
     
     async def close_http_client(self):
         """Close HTTP client on shutdown"""
@@ -242,7 +297,7 @@ class MetaWhatsAppService:
                 else:
                     print(f"❌ Media send error: {response.status_code} - {response.text}")
                     return False
-                
+            
             except httpx.HTTPError as e:
                 print(f"❌ Error sending media by ID: {e}")
                 return False
@@ -444,9 +499,21 @@ class MetaWhatsAppService:
                 print(f"🎵 Processing voice message from {from_number}")
                 
                 # Get patient-specific lock to prevent concurrent processing
+                # Use timeout to prevent deadlocks (max 60 seconds wait)
                 patient_lock = await self._get_patient_lock(from_number)
                 
-                async with patient_lock:
+                try:
+                    # Try to acquire lock with timeout (60 seconds max wait)
+                    await asyncio.wait_for(
+                        patient_lock.acquire(),
+                        timeout=60.0
+                    )
+                except asyncio.TimeoutError:
+                    print(f"⚠️ Timeout acquiring lock for patient {from_number}, message {message_id} - processing anyway")
+                    # Process anyway if lock timeout - better than blocking forever
+                    patient_lock = None
+                
+                try:
                     # Double-check after acquiring lock (in case another request processed it)
                     if self._is_message_processed(message_id):
                         print(f"⚠️ Message {message_id} was processed by another request, skipping")
@@ -460,8 +527,23 @@ class MetaWhatsAppService:
                     # Mark as processed BEFORE processing (to prevent race conditions)
                     self._mark_message_processed(message_id)
                     
-                    # Handle voice message
-                    await self.handle_voice_message(message_data)
+                    # Handle voice message (with timeout to prevent hanging)
+                    try:
+                        await asyncio.wait_for(
+                            self.handle_voice_message(message_data),
+                            timeout=120.0  # 2 minutes max for voice processing
+                        )
+                    except asyncio.TimeoutError:
+                        print(f"⚠️ Voice message processing timed out for {from_number}")
+                        # Send error message to patient
+                        await self.send_message(
+                            from_number,
+                            "معذرت، میں آپ کا پیغام سن رہی ہوں لیکن کچھ وقت لگے گا۔ براہ کرم تھوڑی دیر بعد دوبارہ کوشش کریں۔"
+                        )
+                finally:
+                    # Always release lock if we acquired it
+                    if patient_lock and patient_lock.locked():
+                        patient_lock.release()
             else:
                 print(f"❓ Ignoring non-voice message type: {message_type}")
                 # Mark non-voice messages as processed too
@@ -510,7 +592,7 @@ class MetaWhatsAppService:
         return True
     
     async def handle_voice_message(self, message_data: Dict[str, Any]):
-        """Handle incoming voice message"""
+        """Handle incoming voice message with improved error handling"""
         try:
             from_number = message_data.get('from_number', '')
             media_id = message_data.get('media_id', '')
@@ -553,49 +635,88 @@ class MetaWhatsAppService:
                     print(f"🎤 Transcribed text: {text}")
                     
                     if text:
-                        # Process conversation
-                        conversation_result = await intelligent_conversation_engine.process_patient_response(
-                            patient_text=text,
-                            patient_id=from_number
-                        )
+                        # Process conversation with timeout
+                        try:
+                            conversation_result = await asyncio.wait_for(
+                                intelligent_conversation_engine.process_patient_response(
+                                    patient_text=text,
+                                    patient_id=from_number
+                                ),
+                                timeout=90.0  # 90 seconds max for conversation processing
+                            )
+                        except asyncio.TimeoutError:
+                            print(f"⚠️ Conversation processing timed out for {from_number}")
+                            # Send helpful message to patient
+                            await self.send_message(
+                                from_number,
+                                "معذرت، میں آپ کا جواب تیار کر رہی ہوں لیکن کچھ وقت لگے گا۔ براہ کرم تھوڑی دیر بعد دوبارہ کوشش کریں۔"
+                            )
+                            return
                         
                         # Get AI response
                         response_text = conversation_result.get('response_text', 'I understand. Please tell me more.')
                         print(f"🤖 AI Response: {response_text}")
                         
-                        # Check if EMR generation is needed
+                        # Check if EMR generation is needed (run in background to not block response)
                         action = conversation_result.get('action', 'continue_conversation')
                         print(f"🔍 Action from conversation result: {action}")
                         if action == 'generate_emr':
                             print("🚨 Generating EMR for completed conversation...")
-                            try:
-                                emr_result = await intelligent_conversation_engine.generate_emr(from_number)
-                                if emr_result:
-                                    print("✅ EMR generated successfully")
-                                else:
-                                    print("❌ EMR generation failed")
-                            except Exception as e:
-                                print(f"❌ EMR generation error: {e}")
-                                import traceback
-                                traceback.print_exc()
+                            # Run EMR generation in background task to not block response
+                            async def generate_emr_background():
+                                try:
+                                    emr_result = await intelligent_conversation_engine.generate_emr(from_number)
+                                    if emr_result:
+                                        print("✅ EMR generated successfully")
+                                    else:
+                                        print("❌ EMR generation failed")
+                                except Exception as e:
+                                    print(f"❌ EMR generation error: {e}")
+                                    import traceback
+                                    traceback.print_exc()
+                            
+                            # Don't await - let it run in background
+                            asyncio.create_task(generate_emr_background())
                         
-                        # Convert response to speech
-                        audio_file = await voice_processor.text_to_speech(response_text)
+                        # Convert response to speech with timeout
+                        try:
+                            audio_file = await asyncio.wait_for(
+                                voice_processor.text_to_speech(response_text),
+                                timeout=30.0  # 30 seconds max for TTS
+                            )
+                        except asyncio.TimeoutError:
+                            print(f"⚠️ TTS timed out for {from_number}, sending text message instead")
+                            # Fallback to text message
+                            await self.send_message(from_number, response_text)
+                            return
+                        
                         print(f"🔊 Generated audio type: {type(audio_file)}")
                         print(f"🔊 Generated audio preview: {str(audio_file)[:100]}...")
                         
                         # Send voice response back
                         if audio_file and isinstance(audio_file, str) and audio_file.endswith(('.wav', '.mp3', '.ogg')):
-                            # Upload audio to WhatsApp
-                            print(f"🔊 Uploading audio file: {audio_file}")
-                            uploaded_media_id = await self.upload_media(audio_file, "audio")
-                            if uploaded_media_id:
-                                await self.send_media_by_id(from_number, uploaded_media_id, "audio")
-                                print(f"✅ Sent voice response to {from_number}")
-                            else:
-                                print(f"❌ Failed to upload audio, no response sent")
+                            # Upload audio to WhatsApp with timeout
+                            try:
+                                print(f"🔊 Uploading audio file: {audio_file}")
+                                uploaded_media_id = await asyncio.wait_for(
+                                    self.upload_media(audio_file, "audio"),
+                                    timeout=30.0
+                                )
+                                if uploaded_media_id:
+                                    await asyncio.wait_for(
+                                        self.send_media_by_id(from_number, uploaded_media_id, "audio"),
+                                        timeout=30.0
+                                    )
+                                    print(f"✅ Sent voice response to {from_number}")
+                                else:
+                                    print(f"❌ Failed to upload audio, sending text instead")
+                                    await self.send_message(from_number, response_text)
+                            except asyncio.TimeoutError:
+                                print(f"⚠️ Audio upload/send timed out, sending text instead")
+                                await self.send_message(from_number, response_text)
                         else:
-                            print(f"❌ Audio file invalid, no response sent")
+                            print(f"❌ Audio file invalid, sending text instead")
+                            await self.send_message(from_number, response_text)
                     
                     # Clean up temp file
                     os.unlink(tmp_file.name)
