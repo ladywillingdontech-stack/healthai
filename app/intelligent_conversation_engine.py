@@ -2,8 +2,14 @@ import json
 import re
 import openai
 import asyncio
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Dict, Any, List, Optional
+try:
+    from dateutil import parser
+    DATEUTIL_AVAILABLE = True
+except ImportError:
+    DATEUTIL_AVAILABLE = False
+    print("⚠️ python-dateutil not available, using manual date parsing")
 from app.firestore_service import FirestoreService
 from app.config import settings
 
@@ -1399,6 +1405,100 @@ Now translate: "{name}"
         patient_data["demographics"] = demographics
         patient_data["current_pregnancy"] = current_pregnancy
     
+    def _calculate_pregnancy_weeks(self, lmp_date_str: str) -> Optional[Dict[str, Any]]:
+        """Calculate pregnancy weeks and days from LMP date to current date"""
+        try:
+            # Try to parse the date string
+            # Handle various date formats
+            lmp_date = None
+            
+            # Try dateutil parser first (handles many formats)
+            if DATEUTIL_AVAILABLE:
+                try:
+                    lmp_date = parser.parse(lmp_date_str, dayfirst=True, fuzzy=True)
+                except:
+                    pass
+            
+            # If that fails, try manual parsing
+            if not lmp_date:
+                # Try DD/MM/YYYY or DD-MM-YYYY
+                date_patterns = [
+                    r'(\d{1,2})[\s\-/](\d{1,2})[\s\-/](\d{2,4})',
+                    r'(\d{1,2})\s+(january|february|march|april|may|june|july|august|september|october|november|december)\s+(\d{2,4})',
+                ]
+                
+                months_map = {
+                    'january': 1, 'february': 2, 'march': 3, 'april': 4, 'may': 5, 'june': 6,
+                    'july': 7, 'august': 8, 'september': 9, 'october': 10, 'november': 11, 'december': 12,
+                    'jan': 1, 'feb': 2, 'mar': 3, 'apr': 4, 'may': 5, 'jun': 6,
+                    'jul': 7, 'aug': 8, 'sep': 9, 'oct': 10, 'nov': 11, 'dec': 12
+                }
+                
+                for pattern in date_patterns:
+                    match = re.search(pattern, lmp_date_str, re.IGNORECASE)
+                    if match:
+                        if len(match.groups()) == 3:
+                            if match.group(2).lower() in months_map:
+                                # Month name format
+                                day = int(match.group(1))
+                                month = months_map[match.group(2).lower()]
+                                year = int(match.group(3))
+                                if year < 100:
+                                    year += 2000
+                                lmp_date = datetime(year, month, day)
+                            else:
+                                # DD/MM/YYYY format
+                                day = int(match.group(1))
+                                month = int(match.group(2))
+                                year = int(match.group(3))
+                                if year < 100:
+                                    year += 2000
+                                lmp_date = datetime(year, month, day)
+                            break
+            
+            if not lmp_date:
+                print(f"⚠️ Could not parse LMP date: {lmp_date_str}")
+                return None
+            
+            # Calculate difference from LMP to today
+            today = datetime.now()
+            delta = today - lmp_date
+            
+            # Calculate weeks and days
+            total_days = delta.days
+            weeks = total_days // 7
+            days = total_days % 7
+            
+            # Calculate estimated due date (EDD) - 40 weeks from LMP
+            edd = lmp_date + timedelta(days=280)  # 40 weeks = 280 days
+            
+            # Calculate gestational age
+            gestational_age_weeks = weeks
+            gestational_age_days = days
+            
+            result = {
+                "lmp_date": lmp_date.strftime("%Y-%m-%d"),
+                "lmp_date_display": lmp_date.strftime("%d/%m/%Y"),
+                "current_date": today.strftime("%Y-%m-%d"),
+                "current_date_display": today.strftime("%d/%m/%Y"),
+                "pregnancy_weeks": weeks,
+                "pregnancy_days": days,
+                "total_days": total_days,
+                "gestational_age_weeks": gestational_age_weeks,
+                "gestational_age_days": gestational_age_days,
+                "gestational_age_display": f"{weeks} weeks {days} days",
+                "estimated_due_date": edd.strftime("%Y-%m-%d"),
+                "estimated_due_date_display": edd.strftime("%d/%m/%Y"),
+                "trimester": "first" if weeks < 14 else ("second" if weeks < 28 else "third")
+            }
+            
+            print(f"✅ Calculated pregnancy: {weeks} weeks {days} days (from LMP: {lmp_date.strftime('%d/%m/%Y')})")
+            return result
+            
+        except Exception as e:
+            print(f"⚠️ Error calculating pregnancy weeks: {e}")
+            return None
+    
     async def _extract_lmp_info(self, patient_text: str, patient_data: Dict[str, Any]):
         """Extract LMP date and check if it was remembered"""
         
@@ -1427,6 +1527,23 @@ Now translate: "{name}"
         if has_date and not not_remembered:
             demographics["last_menstrual_period_remembered"] = True
             demographics["last_menstrual_period"] = patient_text.strip()
+            
+            # Calculate pregnancy weeks from LMP
+            pregnancy_calc = self._calculate_pregnancy_weeks(patient_text.strip())
+            if pregnancy_calc:
+                demographics["pregnancy_calculation"] = pregnancy_calc
+                # Also update current_pregnancy with calculated values
+                current_pregnancy = patient_data.get("current_pregnancy", {})
+                current_pregnancy["gestational_age_weeks"] = pregnancy_calc["gestational_age_weeks"]
+                current_pregnancy["gestational_age_days"] = pregnancy_calc["gestational_age_days"]
+                current_pregnancy["gestational_age_display"] = pregnancy_calc["gestational_age_display"]
+                current_pregnancy["estimated_due_date"] = pregnancy_calc["estimated_due_date"]
+                current_pregnancy["estimated_due_date_display"] = pregnancy_calc["estimated_due_date_display"]
+                # Update trimester if not already set or if calculated is more accurate
+                if not current_pregnancy.get("trimester") or pregnancy_calc["trimester"]:
+                    current_pregnancy["trimester"] = pregnancy_calc["trimester"]
+                patient_data["current_pregnancy"] = current_pregnancy
+            
             print(f"✅ LMP date remembered: {patient_text.strip()}")
         elif not_remembered:
             demographics["last_menstrual_period_remembered"] = False
@@ -2134,6 +2251,24 @@ Now translate: "{name}"
             # Get visit number for this EMR
             visit_number = emr_patient_data.get('visit_number', 1)
             
+            # Calculate pregnancy weeks if LMP is available but calculation not done
+            demographics = emr_patient_data.get('demographics', {})
+            if demographics.get('last_menstrual_period') and not demographics.get('pregnancy_calculation'):
+                lmp_date = demographics.get('last_menstrual_period')
+                if lmp_date and isinstance(lmp_date, str):
+                    pregnancy_calc = self._calculate_pregnancy_weeks(lmp_date)
+                    if pregnancy_calc:
+                        demographics['pregnancy_calculation'] = pregnancy_calc
+                        emr_patient_data['demographics'] = demographics
+                        # Also update current_pregnancy
+                        current_pregnancy = emr_patient_data.get('current_pregnancy', {})
+                        current_pregnancy["gestational_age_weeks"] = pregnancy_calc["gestational_age_weeks"]
+                        current_pregnancy["gestational_age_days"] = pregnancy_calc["gestational_age_days"]
+                        current_pregnancy["gestational_age_display"] = pregnancy_calc["gestational_age_display"]
+                        current_pregnancy["estimated_due_date"] = pregnancy_calc["estimated_due_date"]
+                        current_pregnancy["estimated_due_date_display"] = pregnancy_calc["estimated_due_date_display"]
+                        emr_patient_data['current_pregnancy'] = current_pregnancy
+            
             # Ensure alert level is set - if not present, generate one based on symptoms
             alert_level = emr_patient_data.get('alert_level')
             if not alert_level or alert_level not in ['red', 'yellow', 'green']:
@@ -2191,6 +2326,16 @@ Now translate: "{name}"
             
             ### 3. CURRENT PREGNANCY (if applicable)
             Include all details: Pregnancy month, Conception method, Intended/Unintended, Discovery method, Tests done, Early symptoms, Fetal movement, Scans, Complications, Supplements, etc.
+            
+            **PREGNANCY CALCULATION (if LMP date available):**
+            If the patient provided their Last Menstrual Period (LMP) date, calculate and include:
+            - LMP Date: [date in DD/MM/YYYY format]
+            - Current Gestational Age: [X weeks Y days]
+            - Estimated Due Date (EDD): [date in DD/MM/YYYY format]
+            - Current Trimester: [first/second/third]
+            - Days since LMP: [total days]
+            
+            Use the pregnancy_calculation field from demographics if available, or calculate from LMP date if provided. Display this prominently in the Current Pregnancy section.
             
             ### 4. OBSTETRIC HISTORY
             Include complete obstetric history: Previous deliveries, Birth weights, Delivery methods, Complications, etc.
