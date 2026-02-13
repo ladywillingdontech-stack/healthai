@@ -2296,17 +2296,23 @@ Now translate: "{name}"
             
             IMPORTANT: All content must be in English - translate patient responses from Urdu/Roman Urdu to proper English medical terminology.
             
-            Include the following sections:
+            Include the following sections in EXACTLY this order:
             
             # ELECTRONIC MEDICAL RECORD (EMR)
             ## Gynecological Consultation Report
             
             **Visit Number:** {visit_number}
             
-            ### 1. PATIENT DEMOGRAPHICS
-            Include: Name, Age, Phone Number, Marriage Information, Children Information, Menstrual History
+            ### 1. NAME
+            Patient's full name: [Extract from demographics.name]
             
-            ### 2. PRESENTING COMPLAINT
+            ### 2. AGE
+            Patient's age: [Extract from demographics.age]
+            
+            ### 3. PHONE NUMBER
+            Contact number: [Extract from demographics.phone_number]
+            
+            ### 4. PRESENTING COMPLAINT
             Chief Complaint: {emr_patient_data.get('problem_description', 'Not specified')}
             
             **Issue-Specific Follow-up Details:**
@@ -2322,59 +2328,133 @@ Now translate: "{name}"
             - Treatment history
             - Any other relevant details specific to that issue
             
-            Present this information in a structured format under the Presenting Complaint section. Translate all Urdu/Roman Urdu responses to professional English medical terminology. If no issue-specific questions were asked (e.g., for routine checkup), you can skip this subsection.
+            Present this information in a structured format. Translate all Urdu/Roman Urdu responses to professional English medical terminology. If no issue-specific questions were asked (e.g., for routine checkup), you can skip this subsection.
             
-            ### 3. CURRENT PREGNANCY (if applicable)
-            Include all details: Pregnancy month, Conception method, Intended/Unintended, Discovery method, Tests done, Early symptoms, Fetal movement, Scans, Complications, Supplements, etc.
+            ### 5. HOPI (History of Presenting Illness)
+            Provide a detailed history of the presenting illness. Include:
+            - Onset and duration of symptoms
+            - Progression of the complaint
+            - Associated symptoms
+            - Aggravating and relieving factors
+            - Any previous treatments or medications taken for this issue
+            - Impact on daily activities
+            - Any relevant timeline of events
+            
+            Use information from the presenting complaint and issue-specific questions to construct a comprehensive HOPI. Translate all Urdu/Roman Urdu responses to professional English medical terminology.
+            
+            ### 6. PREGNANCY
+            Include all pregnancy-related details:
+            - Current Trimester: [first/second/third]
+            - Pregnancy month (if mentioned)
+            - Conception method (natural/IVF/medication-assisted)
+            - Discovery method
+            - Early symptoms (nausea, vomiting, fever, bleeding)
+            - Fetal movement details
+            - Ultrasound/scan results (early ultrasound, anatomy scan, recent scans)
+            - Regular checkups
+            - Blood and urine tests
+            - Hb levels and symptoms
+            - Sugar and BP tests and any issues
+            - Medications for sugar/BP if applicable
+            - Supplements taken
+            - Bleeding or water leakage issues
+            - Any complications
             
             **PREGNANCY CALCULATION (if LMP date available):**
-            If the patient provided their Last Menstrual Period (LMP) date, calculate and include:
+            If the patient provided their Last Menstrual Period (LMP) date, include:
             - LMP Date: [date in DD/MM/YYYY format]
             - Current Gestational Age: [X weeks Y days]
             - Estimated Due Date (EDD): [date in DD/MM/YYYY format]
-            - Current Trimester: [first/second/third]
             - Days since LMP: [total days]
             
-            Use the pregnancy_calculation field from demographics if available, or calculate from LMP date if provided. Display this prominently in the Current Pregnancy section.
+            Use the pregnancy_calculation field from demographics if available, or calculate from LMP date if provided.
             
-            ### 4. OBSTETRIC HISTORY
-            Include complete obstetric history: Previous deliveries, Birth weights, Delivery methods, Complications, etc.
+            ### 7. OBSTETRIC HISTORY
+            Include complete obstetric history:
+            - Number of previous pregnancies
+            - Previous deliveries details
+            - Birth weights (if mentioned)
+            - Delivery methods (normal/operation/C-section)
+            - Delivery locations
+            - Normal delivery details (if applicable)
+            - Operation reasons (if applicable)
+            - Post-delivery complications
+            - Current status of children
+            - Pregnancy complications in previous pregnancies
+            - Miscarriages or deaths (if applicable)
             
-            ### 5. GYNECOLOGICAL HISTORY
-            Contraception history, Pap smear status
+            If first pregnancy, state "Primigravida - No previous obstetric history"
             
-            ### 6. PAST MEDICAL HISTORY
-            Current medications, Previous conditions (diabetes, hypertension, etc.)
+            ### 8. GYNAECOLOGICAL HISTORY
+            Include:
+            - Contraception history (previous methods used)
+            - Pap smear status
+            - Menstrual history (LMP, regularity, etc.)
+            - Any other gynecological procedures or conditions
             
-            ### 7. SURGICAL HISTORY
-            Previous operations and procedures
+            ### 9. MEDICAL HISTORY
+            Include:
+            - Current medications being taken
+            - Previous medical conditions (diabetes, hypertension, TB, jaundice, heart or kidney issues, etc.)
+            - Any chronic conditions
+            - Medical conditions requiring ongoing treatment
             
-            ### 8. FAMILY HISTORY
-            Medical conditions in family, Twins history
+            ### 10. SURGICAL HISTORY
+            Include:
+            - Previous operations and procedures
+            - Dates and reasons for surgeries (if mentioned)
+            - Any surgical complications
             
-            ### 9. PERSONAL HISTORY
-            Allergies, Blood group, Weight, Smoking/Substance use, Relationship status, Sleep, Appetite, Diet
+            ### 11. PREVIOUS MODE OF DELIVERY
+            Extract and detail:
+            - Delivery methods for all previous pregnancies
+            - Normal deliveries: details about labor onset, duration, any interventions
+            - Operations/C-sections: reasons, dates, any complications
+            - Delivery locations
+            - Post-delivery outcomes
             
-            ### 10. SOCIO-ECONOMIC HISTORY
-            Family size, Husband occupation, Living arrangement
+            If first pregnancy, state "No previous deliveries"
             
-            ### 11. ADDITIONAL INFORMATION
-            Any other relevant information provided by patient
+            ### 12. FHx (FAMILY HISTORY)
+            Include:
+            - Medical conditions in patient's or husband's family
+            - Conditions mentioned: diabetes, blood pressure, heart disease, TB, congenital anomalies in children
+            - Twins history in family (if applicable)
+            - Any hereditary conditions
             
-            ### 12. MEDICAL ASSESSMENT
+            ### 13. PHx (PERSONAL HISTORY)
+            Include:
+            - Allergies (to medications, substances, etc.)
+            - Smoking or substance use (patient or husband)
+            - Domestic violence concerns
+            - Diet and nutrition
+            - Any other personal habits or lifestyle factors
+            
+            ### 14. SOCIOECONOMIC HISTORY
+            Include:
+            - Husband's occupation
+            - Family size (if mentioned)
+            - Living arrangements (if mentioned)
+            - Any socioeconomic factors relevant to healthcare
+            
+            ### 15. ALERT LEVEL
             **Alert Level:** {alert_level.upper()}
+            
+            ---
+            
+            ### MEDICAL ASSESSMENT
             **Assessment Summary:** Write a comprehensive assessment summary in English. If the provided assessment_summary contains Urdu or non-English text, translate it to professional English medical terminology: {emr_patient_data.get('assessment_summary', 'Standard gynecological consultation')}
             **Clinical Impression:** Write clinical impression in English. If the provided clinical_impression contains Urdu or non-English text, translate it to professional English medical terminology: {emr_patient_data.get('clinical_impression', 'Requires further evaluation')}
             
             NOTE: Translate any Urdu/Roman Urdu text in assessment_summary or clinical_impression to proper English medical terminology.
             
-            ### 13. COMPREHENSIVE MEDICAL SUMMARY
+            ### COMPREHENSIVE MEDICAL SUMMARY
             Generate a detailed clinical assessment in English that synthesizes ALL the collected information. Provide a thorough analysis of the patient's condition based on all 60 questions answered. Use professional medical terminology throughout. Translate any patient responses from Urdu/Roman Urdu to English.
             
-            ### 14. RECOMMENDATIONS
+            ### RECOMMENDATIONS
             Provide detailed recommendations in English for further care, follow-up, investigations, and treatment options based on the complete assessment. Use clear, professional medical language.
             
-            ### 15. FOLLOW-UP INSTRUCTIONS
+            ### FOLLOW-UP INSTRUCTIONS
             Clear follow-up instructions in English including when to return, what to monitor, and when to seek immediate care.
             
             REMEMBER: Every single word, sentence, and section must be in English. Translate any non-English content to proper English medical terminology.
