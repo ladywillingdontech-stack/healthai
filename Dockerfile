@@ -26,8 +26,9 @@ COPY requirements.txt .
 # Use setuptools 68.0.0+ which includes pkg_resources by default
 RUN pip install --no-cache-dir --upgrade pip
 RUN pip install --no-cache-dir "setuptools>=68.0.0" "wheel>=0.40.0"
-# Now install requirements - setuptools will be available for any package builds
-RUN pip install --no-cache-dir -r requirements.txt
+# Install requirements with build isolation disabled to ensure setuptools is available
+# This is safe because we're in a controlled Docker environment
+RUN pip install --no-cache-dir --no-build-isolation -r requirements.txt
 
 # Copy application code
 COPY . .
